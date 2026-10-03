@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta
+    name="description"
+    content="Pugon is a cozy gamified savings tracker for future dreams."
+  >
+  <title>Pugon | Savings for the Life You Are Baking</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+
+<body>
+  <header class="site-header">
+    <a class="brand" href="#top" aria-label="Pugon home">
+      <span class="brand-mark" aria-hidden="true">⌁</span>
+      <span>Pugon</span>
+    </a>
+
+    <p class="brand-note">Savings for the life you are baking</p>
+
+    <button class="text-button" id="reset-button" type="button">Reset demo</button>
+  </header>
+
+  <main id="top">
+    <section class="hero" aria-labelledby="page-title">
+      <div>
+        <p class="eyebrow">Your future menu</p>
+        <h1 id="page-title">Small savings. Warm dreams.</h1>
+        <p class="hero-copy">
+          Turn every contribution into an ingredient for the life you want to build.
+        </p>
+      </div>
+
+      <div class="oven" aria-hidden="true">
+        <div class="oven-window">✦</div>
+        <span class="oven-knob knob-one"></span>
+        <span class="oven-knob knob-two"></span>
+      </div>
+    </section>
+
+    <section class="summary" aria-label="Savings summary">
+      <article>
+        <p>Total saved</p>
+        <strong id="total-saved">₱0</strong>
+      </article>
+
+      <article>
+        <p>Dream recipes</p>
+        <strong id="goal-count">0</strong>
+      </article>
+
+      <article>
+        <p>Next bake</p>
+        <strong id="next-milestone">Create a recipe</strong>
+      </article>
+    </section>
+
+    <section class="menu-section" aria-labelledby="dream-menu-title">
+      <div class="section-heading">
+        <div>
+          <p class="eyebrow">Dream menu</p>
+          <h2 id="dream-menu-title">What are you baking next?</h2>
+        </div>
+
+        <button class="primary-button" id="new-goal-button" type="button">
+          + Add a dream recipe
+        </button>
+      </div>
+
+      <div class="goal-grid" id="goal-grid" aria-live="polite"></div>
+
+      <section class="empty-state" id="empty-state" hidden>
+        <span aria-hidden="true">🥐</span>
+        <h2>Your oven is waiting.</h2>
+        <p>Start with one goal. Every small amount can become an ingredient.</p>
+        <button class="primary-button" id="empty-new-goal-button" type="button">
+          Create your first recipe
+        </button>
+      </section>
+    </section>
+  </main>
+
+  <dialog id="goal-dialog" aria-labelledby="goal-dialog-title">
+    <form id="goal-form">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow">New dream recipe</p>
+          <h2 id="goal-dialog-title">What are you saving for?</h2>
+        </div>
+        <button class="close-button" type="button" data-close="goal-dialog" aria-label="Close">×</button>
+      </div>
+
+      <label for="goal-name">Savings goal</label>
+      <input id="goal-name" name="name" type="text" placeholder="Example: MacBook Fund" required>
+
+      <label for="recipe-name">Recipe name</label>
+      <input id="recipe-name" name="recipe" type="text" placeholder="Example: Creative Loaf" required>
+
+      <label for="goal-target">Target amount</label>
+      <input id="goal-target" name="target" type="number" min="1" step="1" placeholder="0" required>
+
+      <label for="goal-icon">Choose a pastry</label>
+      <select id="goal-icon" name="icon">
+        <option value="🍞">Bread loaf</option>
+        <option value="🥐">Croissant</option>
+        <option value="🥨">Pretzel</option>
+        <option value="🧁">Cupcake</option>
+        <option value="🥧">Pie</option>
+      </select>
+
+      <button class="primary-button full-button" type="submit">Put it in the oven</button>
+    </form>
+  </dialog>
+
+  <dialog id="contribution-dialog" aria-labelledby="contribution-dialog-title">
+    <form id="contribution-form">
+      <div class="dialog-heading">
+        <div>
+          <p class="eyebrow" id="contribution-recipe">Add an ingredient</p>
+          <h2 id="contribution-dialog-title">Add savings</h2>
+        </div>
+        <button class="close-button" type="button" data-close="contribution-dialog" aria-label="Close">×</button>
+      </div>
+
+      <input id="contribution-goal-id" name="goalId" type="hidden">
+
+      <label for="contribution-amount">Amount</label>
+      <input id="contribution-amount" name="amount" type="number" min="1" step="1" placeholder="0" required>
+
+      <label for="contribution-note">A small note <span>(optional)</span></label>
+      <input id="contribution-note" name="note" type="text" placeholder="Example: Saved from my shift">
+
+      <button class="primary-button full-button" type="submit">Add ingredient</button>
+    </form>
+  </dialog>
+
+  <template id="goal-template">
+    <article class="goal-card">
+      <div class="goal-card-top">
+        <span class="pastry-icon"></span>
+        <button class="delete-button" type="button" aria-label="Delete goal">×</button>
+      </div>
+
+      <p class="recipe-name"></p>
+      <h3 class="goal-name"></h3>
+      <p class="stage-message"></p>
+
+      <div class="progress-copy">
+        <strong class="current-amount"></strong>
+        <span class="target-amount"></span>
+      </div>
+
+      <div class="progress-track" role="progressbar" aria-label="Savings progress" aria-valuemin="0" aria-valuemax="100">
+        <div class="progress-fill"></div>
+      </div>
+
+      <p class="milestone-copy"></p>
+      <button class="add-button" type="button">+ Add an ingredient</button>
+    </article>
+  </template>
+
+  <script src="script.js"></script>
+</body>
+</html>
