@@ -15,6 +15,26 @@ const CLEARING_CENTER_X = 530; // the phone camera centers here
 
 const PESOS_PER_COIN = 10;
 const STARTER_COINS = 10;
+const DAY = 24 * 60 * 60 * 1000;
+
+// Growth stages by total saved
+const FORMS = [
+  { id: "chick", name: "Chick", from: 0 },
+  { id: "young", name: "Young quail", from: 1000 },
+  { id: "adult", name: "Adult quail", from: 5000 },
+  { id: "golden", name: "Golden Pugo", from: 25000 }
+];
+
+function formFor(total) {
+  let form = FORMS[0];
+  FORMS.forEach((f) => {
+    if (total >= f.from) form = f;
+  });
+  return form;
+}
+
+// Test switch: add ?days=4 to the address to pretend 4 days passed since feeding
+const TEST_DAYS = Math.max(0, Number(new URLSearchParams(location.search).get("days")) || 0);
 
 function freshState() {
   return { entries: [], stage: "egg", muted: false, coins: 0, lastFedAt: null };
@@ -33,6 +53,9 @@ function loadState() {
       if (typeof data.coins !== "number") {
         const earned = data.entries.reduce((sum, entry) => sum + coinsFor(entry.amount), 0);
         loaded.coins = earned + (loaded.stage === "egg" ? 0 : STARTER_COINS);
+      }
+      if (loaded.stage !== "egg" && !loaded.lastFedAt) {
+        loaded.lastFedAt = new Date().toISOString();
       }
       return loaded;
     }
@@ -154,7 +177,12 @@ const sfx = {
     tone(2093, 2093, 0.14, "square", 0.05, 0.06);
   },
   thud: () => noise(0.08, 0.35, 320),
-  nope: () => tone(320, 200, 0.16, "square", 0.04)
+  nope: () => tone(320, 200, 0.16, "square", 0.04),
+  sadPeep: () => tone(1500, 1000, 0.2, "sine", 0.07),
+  snore: () => tone(150, 110, 0.6, "triangle", 0.05),
+  grow: () => {
+    [784, 988, 1175, 1568, 1976].forEach((f, i) => tone(f, f, 0.14, "square", 0.045, i * 0.09));
+  }
 };
 
 // ---------- Loading the art ----------
@@ -268,14 +296,33 @@ function scaleFrame(frame, scale) {
   return c;
 }
 
+// Golden Pugo: the adult art with a gold tint
+function goldenPoses(poses) {
+  const result = {};
+  Object.entries(poses).forEach(([name, frame]) => {
+    const c = document.createElement("canvas");
+    c.width = frame.width;
+    c.height = frame.height;
+    const g = c.getContext("2d");
+    g.drawImage(frame, 0, 0);
+    g.globalCompositeOperation = "source-atop";
+    g.fillStyle = "rgba(255, 196, 40, 0.5)";
+    g.fillRect(0, 0, c.width, c.height);
+    g.globalCompositeOperation = "source-over";
+    result[name] = c;
+  });
+  return result;
+}
+
 const art = {};
 
 async function loadArt() {
-  const [background, nest, egg, chick] = await Promise.all([
+  const [background, nest, egg, chick, quail] = await Promise.all([
     loadImage("assets/background.webp"),
     loadImage("assets/nest.webp"),
     loadImage("assets/egg.png"),
-    loadImage("assets/chick.png")
+    loadImage("assets/chick.png"),
+    loadImage("assets/quail.png")
   ]);
 
   art.background = background;
@@ -287,11 +334,20 @@ async function loadArt() {
   const eggScale = 82 / eggFrames[0].height;
   art.egg = eggFrames.map((f) => scaleFrame(f, eggScale));
 
-  // Chick poses: stand, walk A, walk B, peck, sleep, happy
+  // Pose sheets (both in this order): stand, walk A, walk B, peck, sleep, happy
+  const poses = (frames, height) => {
+    const scale = height / frames[0].height;
+    const [stand, walkA, walkB, peck, sleep, happy] = frames.map((f) => scaleFrame(f, scale));
+    return { stand, walkA, walkB, peck, sleep, happy };
+  };
   const chickFrames = sliceFrames(removeMagenta(chick), 6);
-  const chickScale = 92 / chickFrames[0].height;
-  const [stand, walkA, walkB, peck, sleep, happy] = chickFrames.map((f) => scaleFrame(f, chickScale));
-  art.chick = { stand, walkA, walkB, peck, sleep, happy };
+  const quailFrames = sliceFrames(removeMagenta(quail), 6);
+  art.forms = {
+    chick: poses(chickFrames, 92),
+    young: poses(quailFrames, 104),
+    adult: poses(quailFrames, 128)
+  };
+  art.forms.golden = goldenPoses(art.forms.adult);
 
   // Food art is optional: use placeholders when assets/food.png is missing
   art.food = {};
@@ -324,6 +380,16 @@ function makePixelSprite(rows, colors, size) {
 }
 
 const FX = {
+  crown: makePixelSprite(
+    ["k.k.k", "kykyk", "yyyyy", "yrbry", "kkkkk"],
+    { k: "#a87400", y: "#ffd23f", r: "#e2556b", b: "#4a90e2" },
+    4
+  ),
+  question: makePixelSprite(
+    [".kkkkkkk.", "kwwwwwwwk", "kwwkkkwwk", "kwwwwkwwk", "kwwwkwwwk", "kwwwwwwwk", "kwwwkwwwk", ".kkkkkkk.", "..kk....."],
+    { k: "#3b2a1a", w: "#fffaf0" },
+    4
+  ),
   heart: makePixelSprite(
     [".kk.kk.", "krrkrrk", "krrrrrk", ".krrrk.", "..krk..", "...k..."],
     { k: "#5a1f2a", r: "#ef5a74" },
@@ -421,6 +487,26 @@ const chick = {
 
 let particles = [];
 let foods = []; // food dropped in the yard
+let pugoForm = formFor(totalSaved()); // growth stage shown
+let evolve = null; // { from, time, done } while growing up
+let lastFedTime = state.lastFedAt ? Date.parse(state.lastFedAt) - TEST_DAYS * DAY : Date.now();
+let mood = "happy";
+let moodCheck = 0;
+let bubbleTime = 0;
+let nextBubble = 4;
+let zzzTime = 0;
+let snoreTime = 0;
+
+function moodNow() {
+  const days = (Date.now() - lastFedTime) / DAY;
+  if (days >= 7) return "sleepy";
+  if (days >= 3) return "hungry";
+  return "happy";
+}
+
+function poses() {
+  return art.forms[pugoForm.id];
+}
 let time = 0;
 
 function setEmotion(emotion, seconds) {
@@ -439,7 +525,7 @@ function addParticle(kind, x, y, vx, vy, life) {
 
 function burstHearts(count) {
   for (let i = 0; i < count; i++) {
-    addParticle("heart", chick.x + (Math.random() * 40 - 20), chick.y - 100, Math.random() * 30 - 15, -50 - Math.random() * 30, 1.2);
+    addParticle("heart", chick.x + (Math.random() * 40 - 20), chick.y - poses().stand.height - 8, Math.random() * 30 - 15, -50 - Math.random() * 30, 1.2);
   }
 }
 
@@ -461,7 +547,25 @@ function goToFood(food) {
   chick.foodTarget = food;
   chick.mode = "walk";
   chick.speed = 150;
-  chick.target = { x: food.x + (fromLeft ? -40 : 40), y: food.y };
+  const reach = poses().stand.width * 0.75;
+  chick.target = { x: food.x + (fromLeft ? -reach : reach), y: food.y };
+}
+
+function goToSleep() {
+  chick.foodTarget = null;
+  chick.goingToSleep = true;
+  chick.mode = "walk";
+  chick.speed = 40;
+  chick.target = { x: NEST.x, y: NEST.y + 20 };
+}
+
+function wakeUp() {
+  chick.goingToSleep = false;
+  chick.mode = "react";
+  chick.timer = 0.8;
+  startHop(0.4, 18);
+  setEmotion("excited", 0.8);
+  sfx.peep();
 }
 
 function pickNextMode() {
@@ -470,10 +574,16 @@ function pickNextMode() {
     goToFood(food);
     return;
   }
+  if (mood === "sleepy") {
+    goToSleep();
+    return;
+  }
+  const hungry = mood === "hungry";
   const roll = Math.random();
-  if (roll < 0.5) {
+  // Hungry Pugo walks slower and pecks more, searching for food
+  if (roll < (hungry ? 0.35 : 0.5)) {
     chick.mode = "walk";
-    chick.speed = 70;
+    chick.speed = hungry ? 42 : 70;
     chick.foodTarget = null;
     chick.target = {
       x: BOUNDS.left + Math.random() * (BOUNDS.right - BOUNDS.left),
@@ -537,7 +647,11 @@ function finishEating(food) {
   foods = foods.filter((f) => f !== food);
   chick.foodTarget = null;
   state.lastFedAt = new Date().toISOString();
+  lastFedTime = Date.now();
+  mood = "happy";
+  bubbleTime = 0;
   saveState();
+  renderUI();
 
   const info = FOODS.find((f) => f.id === food.id);
   chick.mode = "react";
@@ -611,6 +725,10 @@ function updateFoods(dt) {
 
 function foodLanded() {
   // Pugo notices the food: excited peep, then runs over
+  if (chick.mode === "sleep" || chick.goingToSleep) {
+    wakeUp();
+    return;
+  }
   if (chick.mode === "eat" || chick.emotion === "dizzy") return;
   chick.mode = "react";
   chick.timer = 0.5;
@@ -620,7 +738,47 @@ function foodLanded() {
   setTimeout(sfx.peep, 140);
 }
 
+function updateMood(dt) {
+  moodCheck -= dt;
+  if (moodCheck <= 0) {
+    moodCheck = 1;
+    const next = moodNow();
+    if (next !== mood) {
+      mood = next;
+      renderUI();
+      if (mood === "sleepy" && chick.mode !== "eat" && chick.mode !== "sleep") goToSleep();
+    }
+  }
+
+  // Hungry: show a "?" bubble and a sad peep now and then
+  if (bubbleTime > 0) bubbleTime -= dt;
+  if (mood === "hungry" && chick.mode !== "eat") {
+    nextBubble -= dt;
+    if (nextBubble <= 0) {
+      bubbleTime = 1.6;
+      nextBubble = 5 + Math.random() * 4;
+      sfx.sadPeep();
+    }
+  }
+
+  if (evolve) {
+    evolve.time += dt;
+    if (evolve.time > 1.4 && !evolve.done) {
+      evolve.done = true;
+      finishGrowing();
+    }
+    if (evolve.time > 2.2) evolve = null;
+  }
+
+  // Golden Pugo shimmers
+  if (pugoForm.id === "golden" && Math.random() < dt * 3) {
+    addParticle("spark", chick.x + Math.random() * 80 - 40, chick.y - Math.random() * poses().stand.height, 0, -15, 0.7);
+  }
+}
+
 function updateChick(dt) {
+  updateMood(dt);
+
   if (chick.emotionTime > 0) {
     chick.emotionTime -= dt;
     if (chick.emotionTime <= 0) chick.emotion = "normal";
@@ -653,7 +811,13 @@ function updateChick(dt) {
     const dy = chick.target.y - chick.y;
     const dist = Math.hypot(dx, dy);
     if (dist < 3) {
-      if (chick.foodTarget) {
+      if (chick.goingToSleep) {
+        chick.goingToSleep = false;
+        chick.mode = "sleep";
+        chick.face = 1;
+        zzzTime = 0.5;
+        snoreTime = 2;
+      } else if (chick.foodTarget) {
         startEating(chick.foodTarget);
       } else if (chick.speed > 70) {
         startPecking();
@@ -680,6 +844,20 @@ function updateChick(dt) {
     return;
   }
 
+  if (chick.mode === "sleep") {
+    zzzTime -= dt;
+    if (zzzTime <= 0) {
+      zzzTime = 1.1;
+      addParticle("zzz", chick.x + 20 + Math.random() * 10, chick.y - poses().sleep.height, 18, -26, 2);
+    }
+    snoreTime -= dt;
+    if (snoreTime <= 0) {
+      snoreTime = 3.5;
+      sfx.snore();
+    }
+    return;
+  }
+
   if (chick.mode === "peck") {
     chick.timer -= dt;
     if (chick.timer <= 0) {
@@ -688,7 +866,7 @@ function updateChick(dt) {
       if (chick.pecking) {
         sfx.peck();
         for (let i = 0; i < 3; i++) {
-          addParticle("dust", chick.x + chick.face * 36, chick.y - 2, chick.face * (10 + Math.random() * 20), -20 - Math.random() * 20, 0.4);
+          addParticle("dust", chick.x + chick.face * poses().stand.width * 0.7, chick.y - 2, chick.face * (10 + Math.random() * 20), -20 - Math.random() * 20, 0.4);
         }
       } else {
         chick.pecks -= 1;
@@ -772,10 +950,14 @@ function drawFoods() {
 }
 
 function chickFrame() {
-  if (chick.emotion === "happy" || chick.emotion === "excited") return art.chick.happy;
-  if (chick.mode === "walk") return chick.walkFrame ? art.chick.walkB : art.chick.walkA;
-  if ((chick.mode === "peck" || chick.mode === "eat") && chick.pecking) return art.chick.peck;
-  return art.chick.stand;
+  // While growing up, flicker between the old and new forms
+  let set = poses();
+  if (evolve && evolve.time < 1.2 && Math.floor(evolve.time * 10) % 2 === 0) set = art.forms[evolve.from.id];
+  if (chick.mode === "sleep") return set.sleep;
+  if (chick.emotion === "happy" || chick.emotion === "excited") return set.happy;
+  if (chick.mode === "walk") return chick.walkFrame ? set.walkB : set.walkA;
+  if ((chick.mode === "peck" || chick.mode === "eat") && chick.pecking) return set.peck;
+  return set.stand;
 }
 
 function drawChick() {
@@ -810,13 +992,30 @@ function drawChick() {
   ctx.rotate(tilt);
   ctx.scale(scaleX * chick.face, scaleY);
   ctx.drawImage(frame, -frame.width / 2, -frame.height);
+  if (pugoForm.id === "golden" && !evolve && chick.mode !== "sleep") {
+    ctx.drawImage(FX.crown, frame.width * 0.12 - FX.crown.width / 2, -frame.height - FX.crown.height + 6);
+  }
   ctx.restore();
+
+  // Glow while growing up
+  if (evolve) {
+    const glow = Math.max(0, 1 - Math.abs(evolve.time - 1));
+    ctx.fillStyle = "rgba(255, 246, 200, " + (glow * 0.55).toFixed(2) + ")";
+    ctx.beginPath();
+    ctx.ellipse(x, y - frame.height / 2, frame.width * 0.9, frame.height * 0.8, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  // Hungry: "?" bubble now and then
+  if (bubbleTime > 0 && chick.mode !== "sleep") {
+    ctx.drawImage(FX.question, Math.round(x + 10), Math.round(y - frame.height - FX.question.height - 6));
+  }
 
   if (chick.emotion === "dizzy") {
     for (let i = 0; i < 3; i++) {
       const angle = time * 5 + (i * Math.PI * 2) / 3;
-      const sx = x + Math.cos(angle) * 36 - FX.star.width / 2;
-      const sy = y - 104 + Math.sin(angle) * 8;
+      const sx = x + Math.cos(angle) * frame.width * 0.45 - FX.star.width / 2;
+      const sy = y - poses().stand.height - 12 + Math.sin(angle) * 8;
       ctx.drawImage(FX.star, Math.round(sx), Math.round(sy));
     }
   }
@@ -835,6 +1034,13 @@ function drawParticles() {
       ctx.fillRect(Math.round(p.x), Math.round(p.y), 6, 5);
       ctx.fillStyle = "#7a4e2c";
       ctx.fillRect(Math.round(p.x) + 2, Math.round(p.y) + 1, 2, 2);
+    } else if (p.kind === "zzz") {
+      ctx.font = "bold " + Math.round(18 + (1 - p.life / p.max) * 10) + "px system-ui, sans-serif";
+      ctx.lineWidth = 4;
+      ctx.strokeStyle = "#3b2a1a";
+      ctx.fillStyle = "#fffaf0";
+      ctx.strokeText("Z", p.x, p.y);
+      ctx.fillText("Z", p.x, p.y);
     } else if (p.kind === "crumb") {
       ctx.fillStyle = "#c98a4a";
       ctx.fillRect(Math.round(p.x), Math.round(p.y), 4, 4);
@@ -914,13 +1120,47 @@ function renderUI() {
   muteButton.setAttribute("aria-pressed", String(state.muted));
   muteButton.setAttribute("aria-label", state.muted ? "Unmute sounds" : "Mute sounds");
   if (!ready) return;
+  renderGrowth();
   if (state.stage === "egg") {
     hintEl.textContent = egg.hatching ? "" : "Save anything to hatch Pugo";
+  } else if (mood === "sleepy") {
+    hintEl.textContent = "Pugo is sleepy and hungry. Feed Pugo to wake it up.";
+  } else if (mood === "hungry") {
+    hintEl.textContent = "Pugo is hungry. Buy food in the Shop.";
   } else if (!tappedOnce) {
     hintEl.textContent = "Tap Pugo to say hi";
   } else {
     hintEl.textContent = "";
   }
+}
+
+const growthName = document.getElementById("growth-name");
+const growthNext = document.getElementById("growth-next");
+const growthFill = document.getElementById("growth-fill");
+const growthBar = document.getElementById("growth-bar");
+
+function renderGrowth() {
+  const total = totalSaved();
+  let percent;
+  if (state.stage === "egg") {
+    growthName.textContent = "Egg";
+    growthNext.textContent = "Save anything to hatch";
+    percent = 0;
+  } else {
+    const current = formFor(total);
+    const next = FORMS[FORMS.indexOf(current) + 1];
+    growthName.textContent = current.name;
+    if (next) {
+      growthNext.textContent = "Next: " + next.name + " · " + peso.format(total) + " / " + peso.format(next.from);
+      percent = ((total - current.from) / (next.from - current.from)) * 100;
+    } else {
+      growthNext.textContent = "Fully grown!";
+      percent = 100;
+    }
+  }
+  percent = Math.max(0, Math.min(100, percent));
+  growthFill.style.width = percent + "%";
+  growthBar.setAttribute("aria-valuenow", String(Math.round(percent)));
 }
 
 function announce(message) {
@@ -932,7 +1172,7 @@ function floatText(text, extraClass = "") {
   el.className = "floater " + extraClass;
   el.textContent = text;
   floatersEl.appendChild(el);
-  setTimeout(() => el.remove(), 1500);
+  setTimeout(() => el.remove(), 2600);
 }
 
 function startHatch() {
@@ -947,6 +1187,10 @@ function finishHatch() {
   egg.hatching = false;
   state.stage = "chick";
   state.coins += STARTER_COINS;
+  state.lastFedAt = new Date().toISOString();
+  lastFedTime = Date.now();
+  mood = "happy";
+  pugoForm = formFor(totalSaved());
   saveState();
   floatText("+" + STARTER_COINS + " starter coins", "floater-coins");
 
@@ -973,7 +1217,7 @@ function finishHatch() {
 }
 
 function celebrateSaving() {
-  if (chick.mode === "eat") {
+  if (chick.mode === "eat" || chick.mode === "sleep" || chick.goingToSleep) {
     sfx.happyChirp();
     setTimeout(sfx.jingle, 300);
     return;
@@ -1002,9 +1246,39 @@ function addSaving(amount) {
   if (!ready) return;
   if (state.stage === "egg") {
     if (!egg.hatching) startHatch();
+    return;
+  }
+  const next = formFor(totalSaved());
+  if (next.id !== pugoForm.id && !evolve) {
+    startGrowing(next);
   } else {
     celebrateSaving();
   }
+}
+
+function startGrowing(next) {
+  evolve = { from: pugoForm, time: 0, done: false };
+  pugoForm = next;
+  chick.goingToSleep = false;
+  chick.foodTarget = null;
+  chick.mode = "react";
+  chick.timer = 2.4;
+  setEmotion("normal", 0);
+  sfx.grow();
+  renderUI();
+}
+
+function finishGrowing() {
+  setEmotion("excited", 1);
+  startHop(0.6, 30);
+  for (let i = 0; i < 24; i++) {
+    const angle = (i / 24) * Math.PI * 2;
+    addParticle("spark", chick.x, chick.y - 50, Math.cos(angle) * 160, Math.sin(angle) * 120, 0.9);
+  }
+  burstHearts(4);
+  sfx.happyChirp();
+  floatText("Pugo grew into " + (pugoForm.id === "golden" ? "Golden Pugo!" : "a " + pugoForm.name.toLowerCase() + "!"), "floater-grow");
+  announce("Pugo grew into " + pugoForm.name + "!");
 }
 
 // Tapping the yard
@@ -1017,7 +1291,9 @@ function toYard(event) {
 }
 
 function hitsChick(point) {
-  return point.x > chick.x - 52 && point.x < chick.x + 52 && point.y > chick.y - 105 && point.y < chick.y + 14;
+  const size = poses().stand;
+  const half = size.width / 2 + 16;
+  return point.x > chick.x - half && point.x < chick.x + half && point.y > chick.y - size.height - 14 && point.y < chick.y + 14;
 }
 
 function hitsEgg(point) {
@@ -1026,6 +1302,12 @@ function hitsEgg(point) {
 
 function petChick() {
   if (chick.mode === "eat") return;
+  if (chick.mode === "sleep") {
+    sfx.snore();
+    addParticle("zzz", chick.x + 20, chick.y - poses().sleep.height, 18, -26, 1.5);
+    hintEl.textContent = "Pugo is sleeping. Feed Pugo to wake it up.";
+    return;
+  }
   if (!tappedOnce) {
     tappedOnce = true;
     renderUI();
@@ -1070,7 +1352,7 @@ canvas.addEventListener("pointerdown", (event) => {
   }
 
   // Tap the grass: Pugo runs over to check it out
-  if (chick.mode === "react" || chick.mode === "eat") return;
+  if (chick.mode === "react" || chick.mode === "eat" || chick.mode === "sleep" || chick.goingToSleep) return;
   chick.foodTarget = null;
   chick.mode = "walk";
   chick.speed = 130;
@@ -1220,7 +1502,12 @@ document.getElementById("reset-button").addEventListener("click", () => {
   particles = [];
   foods = [];
   chick.foodTarget = null;
+  chick.goingToSleep = false;
   chick.mode = "idle";
+  pugoForm = formFor(0);
+  evolve = null;
+  mood = "happy";
+  lastFedTime = Date.now();
   tappedOnce = false;
   renderUI();
 });
@@ -1233,6 +1520,13 @@ hintEl.textContent = "Loading…";
 loadArt()
   .then(() => {
     ready = true;
+    mood = state.stage === "egg" ? "happy" : moodNow();
+    if (mood === "sleepy") {
+      // Already asleep in the nest when the game opens
+      chick.x = NEST.x;
+      chick.y = NEST.y + 20;
+      chick.mode = "sleep";
+    }
     renderUI();
     requestAnimationFrame(loop);
   })

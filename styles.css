@@ -266,6 +266,50 @@ button {
   to { opacity: 0; transform: translate(-50%, -60px) scale(1); }
 }
 
+/* Growth progress */
+.growth {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  background: var(--panel);
+  border: 3px solid var(--wood-light);
+  border-radius: 10px;
+  padding: 10px 14px;
+}
+
+.growth-text {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.growth-text strong {
+  font-size: 1rem;
+}
+
+.growth-text span {
+  font-size: 0.85rem;
+  color: var(--muted);
+  font-weight: 600;
+}
+
+.growth-bar {
+  height: 14px;
+  background: #efe2c8;
+  border: 2px solid var(--wood-dark);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.growth-fill {
+  height: 100%;
+  width: 0;
+  background: repeating-linear-gradient(-45deg, #8fd16a 0 8px, #7cc05a 8px 16px);
+  transition: width 0.6s ease-out;
+}
+
 /* Wooden buttons */
 .actions {
   display: grid;
@@ -554,4 +598,11 @@ dialog input[aria-invalid="true"] {
     font-size: 1.1rem;
     padding: 16px 8px;
   }
+}
+
+.floater-grow {
+  top: 18%;
+  font-size: 1.2rem;
+  white-space: nowrap;
+  animation-duration: 2.4s;
 }
