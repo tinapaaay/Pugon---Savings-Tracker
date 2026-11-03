@@ -67,6 +67,15 @@
         <button class="shop-button" id="shop-button" type="button">Shop</button>
       </div>
 
+      <section class="goals" aria-labelledby="goals-title">
+        <div class="goals-head">
+          <h2 id="goals-title">Goals</h2>
+          <button class="small-button" id="new-goal-button" type="button">+ New goal</button>
+        </div>
+        <p class="goals-empty" id="goals-empty">Make a goal to unlock treats and grow your flock.</p>
+        <ul class="goal-list" id="goal-list"></ul>
+      </section>
+
       <p class="sr-only" id="announcer" aria-live="polite"></p>
     </main>
 
@@ -78,6 +87,9 @@
   <dialog id="save-dialog" aria-labelledby="save-dialog-title">
     <form id="save-form" novalidate>
       <h2 id="save-dialog-title">How much did you save?</h2>
+
+      <label for="goal-select">Which goal?</label>
+      <select id="goal-select" name="goal"></select>
 
       <label for="amount-input">Amount (₱)</label>
       <input id="amount-input" name="amount" type="number" inputmode="decimal" min="1" step="any" placeholder="100" autocomplete="off">
@@ -112,6 +124,50 @@
     <ul class="shop-list" id="shop-treats"></ul>
   </dialog>
 
+  <dialog id="goal-dialog" aria-labelledby="goal-dialog-title">
+    <form id="goal-form" novalidate>
+      <h2 id="goal-dialog-title">New savings goal</h2>
+
+      <label for="goal-name-input">What are you saving for?</label>
+      <input id="goal-name-input" name="name" type="text" maxlength="30" placeholder="MacBook Fund" autocomplete="off">
+
+      <label for="goal-target-input">Target amount (₱)</label>
+      <input id="goal-target-input" name="target" type="number" inputmode="decimal" min="1" step="any" placeholder="60000" autocomplete="off">
+
+      <p class="error" id="goal-error" role="alert"></p>
+
+      <div class="dialog-actions">
+        <button class="text-button" type="button" id="cancel-goal">Cancel</button>
+        <button class="primary-button" type="submit">Create goal</button>
+      </div>
+    </form>
+  </dialog>
+
+  <dialog id="reward-dialog" class="reward-dialog" aria-labelledby="reward-title">
+    <p class="reward-star" aria-hidden="true">★</p>
+    <h2 id="reward-title">Milestone!</h2>
+    <ul class="reward-lines" id="reward-lines"></ul>
+    <button class="primary-button" type="button" id="close-reward">Yay!</button>
+  </dialog>
+
+  <dialog id="name-dialog" aria-labelledby="name-dialog-title">
+    <form id="name-form" novalidate>
+      <h2 id="name-dialog-title">Name your new quail</h2>
+      <p class="dialog-note" id="name-detail"></p>
+
+      <label for="name-input">Name</label>
+      <input id="name-input" name="name" type="text" maxlength="16" autocomplete="off">
+      <p class="error" id="name-error" role="alert"></p>
+
+      <div class="dialog-actions">
+        <button class="primary-button" type="submit">Save name</button>
+      </div>
+    </form>
+  </dialog>
+
+  <!-- goals.js and flock.js load first; script.js starts the game -->
+  <script src="goals.js"></script>
+  <script src="flock.js"></script>
   <script src="script.js"></script>
 </body>
 </html>

@@ -28,7 +28,8 @@ body {
 }
 
 button,
-input {
+input,
+select {
   font: inherit;
   color: inherit;
 }
@@ -408,6 +409,14 @@ dialog label {
   color: var(--muted);
 }
 
+dialog select {
+  padding: 10px 12px;
+  border: 3px solid var(--line);
+  border-radius: 8px;
+  background: #fff;
+  font-size: 1rem;
+}
+
 dialog input {
   padding: 12px;
   border: 3px solid var(--line);
@@ -605,4 +614,174 @@ dialog input[aria-invalid="true"] {
   font-size: 1.2rem;
   white-space: nowrap;
   animation-duration: 2.4s;
+}
+
+/* Goals */
+.goals {
+  background: var(--panel);
+  border: 3px solid var(--wood-light);
+  border-radius: 10px;
+  padding: 12px 14px 14px;
+}
+
+.goals-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.goals-head h2 {
+  font-size: 1.05rem;
+}
+
+.small-button {
+  padding: 6px 12px;
+  background: #5fa34a;
+  color: #fff;
+  font-weight: 800;
+  border: 3px solid var(--wood-dark);
+  border-radius: 8px;
+  box-shadow: 0 3px 0 var(--wood-dark);
+}
+
+.small-button:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--wood-dark);
+}
+
+.goals-empty {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+.goal-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.goal-card {
+  background: #fff;
+  border: 3px solid var(--line);
+  border-radius: 10px;
+  padding: 10px 12px;
+}
+
+.goal-card.done {
+  border-color: #8fd16a;
+  background: #f3fbe9;
+}
+
+.goal-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.goal-head strong {
+  margin-right: auto;
+  overflow-wrap: anywhere;
+}
+
+.goal-badge {
+  font-size: 0.75rem;
+  font-weight: 800;
+  color: #2f6b1f;
+  background: #d6f0c2;
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.goal-delete {
+  width: 28px;
+  height: 28px;
+  border: 2px solid var(--line);
+  border-radius: 6px;
+  background: var(--panel);
+  color: var(--muted);
+  line-height: 1;
+}
+
+.goal-amounts {
+  font-size: 0.85rem;
+  font-weight: 700;
+  color: var(--muted);
+  margin: 2px 0 6px;
+}
+
+.goal-bar {
+  position: relative;
+  height: 14px;
+  background: #efe2c8;
+  border: 2px solid var(--wood-dark);
+  border-radius: 999px;
+  overflow: hidden;
+}
+
+.goal-fill {
+  height: 100%;
+  background: repeating-linear-gradient(-45deg, #f2b45a 0 8px, #e8a040 8px 16px);
+  transition: width 0.6s ease-out;
+}
+
+.goal-card.done .goal-fill {
+  background: repeating-linear-gradient(-45deg, #8fd16a 0 8px, #7cc05a 8px 16px);
+}
+
+.goal-tick {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: rgba(90, 53, 24, 0.45);
+}
+
+.goal-tick.reached {
+  background: #fffaf0;
+}
+
+.goal-next {
+  font-size: 0.8rem;
+  color: var(--muted);
+  margin-top: 4px;
+}
+
+.dialog-note {
+  font-size: 0.9rem;
+  color: var(--muted);
+}
+
+/* Reward card */
+.reward-dialog {
+  text-align: center;
+}
+
+.reward-star {
+  font-size: 2.6rem;
+  line-height: 1;
+  color: #ffd23f;
+  -webkit-text-stroke: 2px var(--wood-dark);
+}
+
+.reward-dialog h2 {
+  margin: 6px 0 10px;
+}
+
+.reward-lines {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 16px;
+}
+
+.reward-lines li {
+  background: #fff;
+  border: 2px solid var(--line);
+  border-radius: 8px;
+  padding: 6px 10px;
+  font-weight: 600;
 }

@@ -37,7 +37,18 @@ function formFor(total) {
 const TEST_DAYS = Math.max(0, Number(new URLSearchParams(location.search).get("days")) || 0);
 
 function freshState() {
-  return { entries: [], stage: "egg", muted: false, coins: 0, lastFedAt: null };
+  return {
+    entries: [], // savings: { id, amount, date, goalId }
+    stage: "egg",
+    muted: false,
+    coins: 0,
+    lastFedAt: null,
+    goals: [], // { id, name, target, milestones, createdAt, completedAt }
+    lastGoalId: "general",
+    unlocks: [], // rewards from goal milestones, e.g. "hat", "turon"
+    eggs: [], // eggs from completed goals waiting in the nest
+    flock: [] // { id, name, variety, fromGoalId }
+  };
 }
 
 function coinsFor(amount) {
@@ -380,6 +391,16 @@ function makePixelSprite(rows, colors, size) {
 }
 
 const FX = {
+  hat: makePixelSprite(
+    ["....kk....", "...kyyk...", "..kyyyyk..", ".kyybbyyk.", "kyyyyyyyyk", "kkkkkkkkkk"],
+    { k: "#6b3f1c", y: "#e2b45a", b: "#a8652a" },
+    4
+  ),
+  flowers: makePixelSprite(
+    [".p.....y....", "pcp...yoy...", ".p..w..y..p.", ".g.wcw.g.pcp", ".g..w..g..p.", "gg.ggg.gg.gg"],
+    { p: "#f28fb1", c: "#ffd23f", y: "#f6d55c", o: "#e8893a", w: "#ffffff", g: "#4f8f3d" },
+    5
+  ),
   crown: makePixelSprite(
     ["k.k.k", "kykyk", "yyyyy", "yrbry", "kkkkk"],
     { k: "#a87400", y: "#ffd23f", r: "#e2556b", b: "#4a90e2" },
@@ -416,7 +437,7 @@ const FOODS = [
 ];
 
 function isUnlocked(food) {
-  return !food.lockedNote; // Goals arrive in Phase 4
+  return !food.lockedNote || state.unlocks.includes(food.id);
 }
 
 // Simple placeholder icons until assets/food.png is made in Gemini
@@ -906,6 +927,7 @@ function updateParticles(dt) {
     p.x += p.vx * dt;
     p.y += p.vy * dt;
     if (p.kind === "shell" || p.kind === "dust" || p.kind === "crumb") p.vy += 240 * dt;
+    if (p.kind === "confetti") p.vy += 60 * dt;
   });
   particles = particles.filter((p) => p.life > 0);
 }
@@ -938,15 +960,42 @@ function drawEgg() {
   ctx.restore();
 }
 
-function drawFoods() {
-  foods.forEach((food) => {
-    const sprite = art.food[food.id];
-    const size = 0.45 + 0.55 * (food.bitesLeft / food.bites);
-    const w = sprite.width * size;
-    const h = sprite.height * size;
-    drawShadow(food.x, food.y, w * 0.9 * (1 - Math.min(food.z, 200) / 300));
-    ctx.drawImage(sprite, food.x - w / 2, food.y - h - food.z, w, h);
-  });
+function drawFood(food) {
+  const sprite = art.food[food.id];
+  const size = 0.45 + 0.55 * (food.bitesLeft / food.bites);
+  const w = sprite.width * size;
+  const h = sprite.height * size;
+  drawShadow(food.x, food.y, w * 0.9 * (1 - Math.min(food.z, 200) / 300));
+  ctx.drawImage(sprite, food.x - w / 2, food.y - h - food.z, w, h);
+}
+
+// Finds the top of the head in a frame (the highest point near the front),
+// so hats sit on the head in every pose. When pecking, the head is lower
+// and further forward, so only the front third is searched. Cached on the frame.
+function headSpot(frame, front = 0.5) {
+  if (frame.head) return frame.head;
+  const g = frame.getContext("2d", { willReadFrequently: true });
+  const { data } = g.getImageData(0, 0, frame.width, frame.height);
+  const startX = Math.floor(frame.width * front);
+  let best = { x: frame.width * 0.6, y: 0 };
+  for (let y = 0; y < frame.height; y++) {
+    let found = -1;
+    for (let x = startX; x < frame.width; x++) {
+      if (data[(y * frame.width + x) * 4 + 3] > 0) {
+        found = x;
+        break;
+      }
+    }
+    if (found >= 0) {
+      // Use the middle of the head's top row
+      let end = found;
+      while (end + 1 < frame.width && data[(y * frame.width + end + 1) * 4 + 3] > 0) end++;
+      best = { x: (found + end) / 2, y };
+      break;
+    }
+  }
+  frame.head = best;
+  return best;
 }
 
 function chickFrame() {
@@ -992,8 +1041,13 @@ function drawChick() {
   ctx.rotate(tilt);
   ctx.scale(scaleX * chick.face, scaleY);
   ctx.drawImage(frame, -frame.width / 2, -frame.height);
-  if (pugoForm.id === "golden" && !evolve && chick.mode !== "sleep") {
-    ctx.drawImage(FX.crown, frame.width * 0.12 - FX.crown.width / 2, -frame.height - FX.crown.height + 6);
+  // Crown (Golden Pugo) or salakot hat (first 25% goal milestone), placed on the head
+  const headwear = pugoForm.id === "golden" ? FX.crown : state.unlocks.includes("hat") ? FX.hat : null;
+  if (headwear && !evolve && chick.mode !== "sleep") {
+    const pecking = (chick.mode === "peck" || chick.mode === "eat") && chick.pecking;
+    const head = headSpot(frame, pecking ? 0.68 : 0.5);
+    const sink = frame.height * 0.14;
+    ctx.drawImage(headwear, head.x - frame.width / 2 - headwear.width / 2, head.y - frame.height + sink - headwear.height);
   }
   ctx.restore();
 
@@ -1041,6 +1095,9 @@ function drawParticles() {
       ctx.fillStyle = "#fffaf0";
       ctx.strokeText("Z", p.x, p.y);
       ctx.fillText("Z", p.x, p.y);
+    } else if (p.kind === "confetti") {
+      ctx.fillStyle = p.color;
+      ctx.fillRect(Math.round(p.x), Math.round(p.y), 8, 5);
     } else if (p.kind === "crumb") {
       ctx.fillStyle = "#c98a4a";
       ctx.fillRect(Math.round(p.x), Math.round(p.y), 4, 4);
@@ -1056,22 +1113,30 @@ function drawParticles() {
   ctx.globalAlpha = 1;
 }
 
+const FLOWER_PATCH = { x: 640, y: 372 };
+
 function draw() {
   ctx.setTransform(1, 0, 0, 1, -view.x, 0);
   ctx.drawImage(art.background, 0, 0, W, H);
+  if (state.unlocks.includes("flowers")) {
+    ctx.drawImage(FX.flowers, FLOWER_PATCH.x - FX.flowers.width / 2, FLOWER_PATCH.y - FX.flowers.height);
+  }
+
   if (state.stage === "egg") {
     drawNest();
     drawEgg();
-  } else if (chick.y < NEST.y - 20) {
-    // Pugo is behind the nest
-    drawFoods();
-    drawChick();
-    drawNest();
-  } else {
-    drawNest();
-    drawFoods();
-    drawChick();
+    drawParticles();
+    return;
   }
+
+  // Draw back to front, so things lower on screen appear in front.
+  // Anything standing above NEST.y - 20 is behind the nest.
+  const items = [{ y: NEST.y - 20, draw: () => { drawNest(); drawFlockEgg(); } }];
+  foods.forEach((food) => items.push({ y: food.y, draw: () => drawFood(food) }));
+  flockBirds.forEach((b) => items.push({ y: b.y, draw: () => drawBird(b) }));
+  items.push({ y: chick.y, draw: drawChick });
+  items.sort((a, b) => a.y - b.y).forEach((item) => item.draw());
+
   drawParticles();
 }
 
@@ -1084,8 +1149,12 @@ function loop(now) {
   lastFrame = now;
   time += dt;
 
-  if (state.stage === "egg") updateEgg(dt);
-  else updateChick(dt);
+  if (state.stage === "egg") {
+    updateEgg(dt);
+  } else {
+    updateChick(dt);
+    updateFlock(dt);
+  }
   updateFoods(dt);
   updateParticles(dt);
   draw();
@@ -1119,6 +1188,7 @@ function renderUI() {
   shopCoinsEl.textContent = state.coins;
   muteButton.setAttribute("aria-pressed", String(state.muted));
   muteButton.setAttribute("aria-label", state.muted ? "Unmute sounds" : "Mute sounds");
+  renderGoals();
   if (!ready) return;
   renderGrowth();
   if (state.stage === "egg") {
@@ -1127,6 +1197,8 @@ function renderUI() {
     hintEl.textContent = "Pugo is sleepy and hungry. Feed Pugo to wake it up.";
   } else if (mood === "hungry") {
     hintEl.textContent = "Pugo is hungry. Buy food in the Shop.";
+  } else if (state.eggs.length > 0 && state.flock.length < FLOCK_LIMIT) {
+    hintEl.textContent = "An egg is in the nest! Tap it to hatch.";
   } else if (!tappedOnce) {
     hintEl.textContent = "Tap Pugo to say hi";
   } else {
@@ -1233,10 +1305,15 @@ function celebrateSaving() {
   setTimeout(sfx.jingle, 300);
 }
 
-function addSaving(amount) {
+function addSaving(amount, goalId = "general") {
   const earned = coinsFor(amount);
-  state.entries.push({ id: Date.now(), amount, date: new Date().toISOString() });
+  const goal = findGoal(goalId);
+  const before = goal ? goalPercent(goal) : 0;
+  state.entries.push({ id: Date.now(), amount, date: new Date().toISOString(), goalId: goal ? goal.id : null });
+  state.lastGoalId = goal ? goal.id : "general";
   state.coins += earned;
+  const reward = goal ? checkMilestones(goal, before) : null;
+  if (reward) setTimeout(() => showReward(reward), 1000);
   saveState();
   renderUI();
   floatText("+" + peso.format(amount));
@@ -1253,6 +1330,30 @@ function addSaving(amount) {
     startGrowing(next);
   } else {
     celebrateSaving();
+  }
+}
+
+// Confetti and a fanfare when a goal reaches a milestone
+function celebrateMilestone() {
+  for (let i = 0; i < 40; i++) {
+    const p = {
+      kind: "confetti",
+      x: view.x + Math.random() * view.width,
+      y: -10 - Math.random() * 120,
+      vx: Math.random() * 60 - 30,
+      vy: 80 + Math.random() * 80,
+      life: 3,
+      max: 3,
+      color: ["#ef5a74", "#ffd23f", "#5fa34a", "#4a90e2", "#e8893a"][i % 5]
+    };
+    particles.push(p);
+  }
+  sfx.grow();
+  if (state.stage !== "egg" && chick.mode !== "eat" && chick.mode !== "sleep") {
+    chick.mode = "react";
+    chick.timer = 1.4;
+    startHop(1, 30);
+    setEmotion("excited", 1.4);
   }
 }
 
@@ -1346,8 +1447,19 @@ canvas.addEventListener("pointerdown", (event) => {
     return;
   }
 
+  if (hitsFlockEgg(point)) {
+    tapFlockEgg();
+    return;
+  }
+
   if (hitsChick(point)) {
     petChick();
+    return;
+  }
+
+  const bird = hitsBird(point);
+  if (bird) {
+    petBird(bird);
     return;
   }
 
@@ -1380,6 +1492,7 @@ function clearError() {
 
 saveButton.addEventListener("click", () => {
   form.reset();
+  renderGoalSelect(); // pick the last-used goal again after the reset
   clearError();
   dialog.showModal();
   amountInput.focus();
@@ -1415,7 +1528,7 @@ form.addEventListener("submit", (event) => {
   }
 
   dialog.close();
-  addSaving(amount);
+  addSaving(amount, goalSelect.value);
 });
 
 // Shop
@@ -1492,7 +1605,7 @@ document.getElementById("close-shop").addEventListener("click", () => shopDialog
 
 // Start over
 document.getElementById("reset-button").addEventListener("click", () => {
-  if (!confirm("Start over? This clears your savings and Pugo goes back to an egg.")) return;
+  if (!confirm("Start over? This clears your savings, goals and flock, and Pugo goes back to an egg.")) return;
   const muted = state.muted;
   state = freshState();
   state.muted = muted;
@@ -1506,6 +1619,9 @@ document.getElementById("reset-button").addEventListener("click", () => {
   chick.mode = "idle";
   pugoForm = formFor(0);
   evolve = null;
+  flockBirds = [];
+  flockEgg.hatching = false;
+  flockEgg.cracks = 0;
   mood = "happy";
   lastFedTime = Date.now();
   tappedOnce = false;
@@ -1520,6 +1636,7 @@ hintEl.textContent = "Loading…";
 loadArt()
   .then(() => {
     ready = true;
+    syncFlock();
     mood = state.stage === "egg" ? "happy" : moodNow();
     if (mood === "sleepy") {
       // Already asleep in the nest when the game opens
