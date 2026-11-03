@@ -1,12 +1,14 @@
 :root {
-  --bg: #fdf3e1;
+  --bg: #fbf1dc;
   --panel: #fffaf0;
   --ink: #3b2a1a;
   --muted: #8a6f55;
   --line: #e6d3b3;
-  --accent: #e0893a;
-  --accent-dark: #b9651f;
-  --grass: #7cbf5a;
+  --wood-dark: #5a3518;
+  --wood: #8b5a2b;
+  --wood-light: #b77b3e;
+  --accent: #e8893a;
+  --accent-dark: #c9681f;
   --error: #c2412d;
   --pixel: "Press Start 2P", monospace;
 }
@@ -51,26 +53,42 @@ button {
 
 /* Layout */
 .app {
-  max-width: 560px;
+  position: relative;
+  max-width: 640px;
   min-height: 100vh;
   margin: 0 auto;
-  padding: 16px;
+  padding: 24px 20px;
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 18px;
 }
+
+/* Decorative pixel corners */
+.corners span {
+  position: absolute;
+  width: 34px;
+  height: 34px;
+  border: 4px double var(--wood-light);
+  pointer-events: none;
+}
+
+.corners span:nth-child(1) { top: 6px; left: 6px; border-right: 0; border-bottom: 0; }
+.corners span:nth-child(2) { top: 6px; right: 6px; border-left: 0; border-bottom: 0; }
+.corners span:nth-child(3) { bottom: 6px; left: 6px; border-right: 0; border-top: 0; }
+.corners span:nth-child(4) { bottom: 6px; right: 6px; border-left: 0; border-top: 0; }
 
 .top-bar {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: 10px;
 }
 
 .logo {
   font-family: var(--pixel);
-  font-size: 1.1rem;
+  font-size: 1.35rem;
   font-weight: 400;
   color: var(--accent-dark);
+  text-shadow: 2px 2px 0 #f3d2a8;
   margin-right: auto;
 }
 
@@ -78,43 +96,60 @@ button {
   display: flex;
   flex-direction: column;
   align-items: flex-end;
+  min-width: 96px;
   background: var(--panel);
-  border: 2px solid var(--line);
-  border-radius: 10px;
-  padding: 4px 12px;
+  border: 3px solid var(--wood-light);
+  outline: 2px solid var(--panel);
+  box-shadow: 0 0 0 5px var(--wood-light);
+  border-radius: 4px;
+  padding: 3px 10px;
+  margin: 5px;
 }
 
 .stat-label {
   font-size: 0.7rem;
+  font-weight: 700;
   color: var(--muted);
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
 
 .stat-value {
-  font-family: var(--pixel);
-  font-size: 0.8rem;
-  font-weight: 400;
+  font-size: 1.05rem;
+  font-weight: 800;
+  color: var(--ink);
 }
 
 .icon-button {
-  width: 44px;
-  height: 44px;
+  width: 48px;
+  height: 48px;
   display: grid;
   place-items: center;
-  background: var(--panel);
-  border: 2px solid var(--line);
-  border-radius: 10px;
+  background: var(--accent);
+  border: 3px solid var(--wood-dark);
+  box-shadow: inset 0 0 0 3px var(--wood-light), 0 4px 0 var(--wood-dark);
+  border-radius: 6px;
+}
+
+.icon-button:active {
+  transform: translateY(2px);
+  box-shadow: inset 0 0 0 3px var(--wood-light), 0 2px 0 var(--wood-dark);
 }
 
 .icon {
-  width: 22px;
-  height: 22px;
-  fill: none;
-  stroke: var(--ink);
+  width: 24px;
+  height: 24px;
+  fill: #fff4e0;
+  stroke: var(--wood-dark);
   stroke-width: 2;
   stroke-linecap: round;
   stroke-linejoin: round;
+}
+
+.icon .wave {
+  fill: none;
+  stroke: #fff4e0;
+  stroke-width: 2.5;
 }
 
 .icon-muted,
@@ -130,48 +165,60 @@ button {
 .stage {
   display: flex;
   flex-direction: column;
-  gap: 16px;
+  gap: 20px;
   flex: 1;
 }
 
 .yard {
   position: relative;
-  border: 4px solid var(--ink);
-  border-radius: 12px;
+  border: 4px solid var(--wood-dark);
+  border-radius: 14px;
   overflow: hidden;
-  background: #bfe6f5;
+  background: #6f9a4a;
+  box-shadow: 0 8px 20px rgba(90, 53, 24, 0.25);
 }
 
 #yard-canvas {
   display: block;
   width: 100%;
   height: auto;
-  aspect-ratio: 4 / 3;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
   touch-action: manipulation;
   cursor: pointer;
 }
 
 .hint {
   position: absolute;
-  top: 10px;
+  top: 12px;
   left: 50%;
   transform: translateX(-50%);
-  max-width: calc(100% - 20px);
-  padding: 6px 12px;
-  background: rgba(255, 250, 240, 0.92);
-  border: 2px solid var(--ink);
+  max-width: calc(100% - 24px);
+  padding: 7px 14px;
+  background: #fffaf0;
+  border: 3px solid var(--ink);
   border-radius: 8px;
-  font-size: 0.85rem;
-  font-weight: 600;
+  font-size: 0.9rem;
+  font-weight: 700;
   text-align: center;
   pointer-events: none;
-  transition: opacity 0.4s;
+  box-shadow: 0 3px 0 rgba(59, 42, 26, 0.35);
+}
+
+/* Speech-bubble tail */
+.hint::after {
+  content: "";
+  position: absolute;
+  bottom: -9px;
+  left: 50%;
+  width: 12px;
+  height: 12px;
+  background: #fffaf0;
+  border-right: 3px solid var(--ink);
+  border-bottom: 3px solid var(--ink);
+  transform: translateX(-50%) rotate(45deg);
 }
 
 .hint:empty {
-  opacity: 0;
+  display: none;
 }
 
 .floaters {
@@ -185,42 +232,58 @@ button {
   left: 50%;
   top: 30%;
   transform: translateX(-50%);
-  font-family: var(--pixel);
-  font-size: 0.9rem;
-  color: var(--accent-dark);
-  text-shadow: 2px 2px 0 #fffaf0;
+  font-size: 1.4rem;
+  font-weight: 800;
+  color: #ffe27a;
+  -webkit-text-stroke: 1.5px var(--wood-dark);
+  text-shadow: 0 3px 0 var(--wood-dark);
   animation: float-up 1.4s ease-out forwards;
 }
 
 @keyframes float-up {
-  from { opacity: 1; transform: translate(-50%, 0); }
-  to { opacity: 0; transform: translate(-50%, -48px); }
+  from { opacity: 1; transform: translate(-50%, 0) scale(0.9); }
+  20% { transform: translate(-50%, -10px) scale(1.1); }
+  to { opacity: 0; transform: translate(-50%, -60px) scale(1); }
 }
 
+/* Wooden button */
 .save-button,
 .primary-button {
+  position: relative;
   background: var(--accent);
   color: #fff;
-  border: 3px solid var(--ink);
-  border-radius: 12px;
-  font-weight: 700;
-  box-shadow: 0 4px 0 var(--ink);
+  border: 4px solid var(--wood-dark);
+  border-radius: 8px;
+  font-weight: 800;
+  text-shadow: 0 2px 0 var(--accent-dark);
+  box-shadow:
+    inset 0 0 0 4px var(--wood-light),
+    inset 0 -6px 0 4px rgba(0, 0, 0, 0.08),
+    0 6px 0 var(--wood-dark);
   transition: transform 0.08s, box-shadow 0.08s;
 }
 
 .save-button {
-  padding: 16px;
-  font-size: 1.1rem;
+  padding: 20px;
+  font-size: 1.35rem;
+}
+
+.save-button:hover,
+.primary-button:hover {
+  filter: brightness(1.05);
 }
 
 .save-button:active,
 .primary-button:active {
-  transform: translateY(3px);
-  box-shadow: 0 1px 0 var(--ink);
+  transform: translateY(4px);
+  box-shadow:
+    inset 0 0 0 4px var(--wood-light),
+    0 2px 0 var(--wood-dark);
 }
 
 .primary-button {
-  padding: 10px 20px;
+  padding: 10px 22px;
+  font-size: 1rem;
 }
 
 .text-button {
@@ -239,14 +302,15 @@ button {
 dialog {
   width: min(92vw, 380px);
   margin: auto;
-  border: 4px solid var(--ink);
-  border-radius: 14px;
+  border: 4px solid var(--wood-dark);
+  border-radius: 12px;
   background: var(--panel);
-  padding: 20px;
+  box-shadow: inset 0 0 0 4px var(--wood-light);
+  padding: 24px;
 }
 
 dialog::backdrop {
-  background: rgba(59, 42, 26, 0.45);
+  background: rgba(59, 42, 26, 0.5);
 }
 
 dialog form {
@@ -256,19 +320,19 @@ dialog form {
 }
 
 dialog h2 {
-  font-size: 1.15rem;
+  font-size: 1.2rem;
 }
 
 dialog label {
   font-size: 0.85rem;
-  font-weight: 600;
+  font-weight: 700;
   color: var(--muted);
 }
 
 dialog input {
   padding: 12px;
-  border: 2px solid var(--line);
-  border-radius: 10px;
+  border: 3px solid var(--line);
+  border-radius: 8px;
   background: #fff;
   font-size: 1.2rem;
 }
@@ -292,9 +356,13 @@ dialog input[aria-invalid="true"] {
 .quick-amounts button {
   padding: 8px 0;
   background: #fff;
-  border: 2px solid var(--line);
+  border: 3px solid var(--line);
   border-radius: 8px;
-  font-weight: 600;
+  font-weight: 700;
+}
+
+.quick-amounts button:hover {
+  border-color: var(--wood-light);
 }
 
 .dialog-actions {

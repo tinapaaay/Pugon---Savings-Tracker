@@ -1,8 +1,14 @@
 // Pugo: a savings pet game. Phase 1: backyard, egg, chick, reactions, sounds.
+// Art lives in assets/ (made with Gemini). Sprite sheets use a magenta
+// background, which is removed in code when the game loads.
 
 const STORAGE_KEY = "pugo-save-v1";
-const W = 96;
-const H = 72;
+const W = 1024;
+const H = 765;
+
+// Where things sit in the background image (in image pixels)
+const NEST = { x: 565, y: 262, width: 200 };
+const BOUNDS = { left: 420, right: 740, top: 200, bottom: 390 };
 
 // ---------- Saved state ----------
 
@@ -126,145 +132,195 @@ const sfx = {
   peck: () => noise(0.025, 0.08, 4000)
 };
 
-// ---------- Sprites (pixel maps drawn in code; placeholders for real art) ----------
+// ---------- Loading the art ----------
 
-const COLORS = {
-  k: "#5a3b1e", // outline
-  y: "#e8c26a", // chick body
-  b: "#a8742f", // stripes
-  w: "#cf9f4a", // wing
-  o: "#d98a3a", // beak
-  c: "#f1e6c8", // egg shell
-  d: "#7a5532", // egg speckles
-  r: "#e2556b", // heart
-  s: "#f6d55c" // star
-};
+function loadImage(src) {
+  return new Promise((resolve, reject) => {
+    const img = new Image();
+    img.onload = () => resolve(img);
+    img.onerror = () => reject(new Error("Could not load " + src));
+    img.src = src;
+  });
+}
 
-function makeSprite(rows) {
-  const canvas = document.createElement("canvas");
-  canvas.width = rows[0].length;
-  canvas.height = rows.length;
-  const g = canvas.getContext("2d");
+// Makes the magenta background (and its pinkish edges) see-through.
+function removeMagenta(img) {
+  const c = document.createElement("canvas");
+  c.width = img.naturalWidth;
+  c.height = img.naturalHeight;
+  const g = c.getContext("2d", { willReadFrequently: true });
+  g.drawImage(img, 0, 0);
+  const pixels = g.getImageData(0, 0, c.width, c.height);
+  const d = pixels.data;
+  for (let i = 0; i < d.length; i += 4) {
+    const r = d[i];
+    const gr = d[i + 1];
+    const b = d[i + 2];
+    if (r > gr + 40 && b > gr + 40) d[i + 3] = 0;
+  }
+  g.putImageData(pixels, 0, 0);
+  return c;
+}
+
+// Finds each drawing in a sheet by looking for see-through gaps between them.
+function sliceFrames(sheet, count) {
+  const g = sheet.getContext("2d", { willReadFrequently: true });
+  const { width, height } = sheet;
+  const alpha = g.getImageData(0, 0, width, height).data;
+  const isFilled = (x, y) => alpha[(y * width + x) * 4 + 3] > 0;
+
+  const filledColumn = [];
+  for (let x = 0; x < width; x++) {
+    let filled = false;
+    for (let y = 0; y < height && !filled; y++) filled = isFilled(x, y);
+    filledColumn.push(filled);
+  }
+
+  // Group filled columns into segments, ignoring tiny gaps
+  let segments = [];
+  let start = -1;
+  let gap = 0;
+  for (let x = 0; x <= width; x++) {
+    const filled = x < width && filledColumn[x];
+    if (filled) {
+      if (start < 0) start = x;
+      gap = 0;
+    } else if (start >= 0) {
+      gap += 1;
+      if (gap > 6 || x === width) {
+        segments.push({ left: start, right: x - gap });
+        start = -1;
+        gap = 0;
+      }
+    }
+  }
+
+  // Specks (like flying shell bits) can make extra segments: merge the
+  // narrowest one into its closest neighbor until the count is right.
+  while (segments.length > count) {
+    let i = 0;
+    segments.forEach((s, j) => {
+      if (s.right - s.left < segments[i].right - segments[i].left) i = j;
+    });
+    const s = segments[i];
+    const prev = segments[i - 1];
+    const next = segments[i + 1];
+    const useNext = !prev || (next && next.left - s.right < s.left - prev.right);
+    const other = useNext ? next : prev;
+    other.left = Math.min(other.left, s.left);
+    other.right = Math.max(other.right, s.right);
+    segments.splice(i, 1);
+  }
+
+  return segments.map(({ left, right }) => {
+    let top = height;
+    let bottom = 0;
+    for (let x = left; x <= right; x++) {
+      for (let y = 0; y < height; y++) {
+        if (isFilled(x, y)) {
+          top = Math.min(top, y);
+          bottom = Math.max(bottom, y);
+        }
+      }
+    }
+    const frame = document.createElement("canvas");
+    frame.width = right - left + 1;
+    frame.height = bottom - top + 1;
+    frame.getContext("2d").drawImage(sheet, left, top, frame.width, frame.height, 0, 0, frame.width, frame.height);
+    return frame;
+  });
+}
+
+// Shrinks a frame smoothly so it matches the background's scale.
+function scaleFrame(frame, scale) {
+  const c = document.createElement("canvas");
+  c.width = Math.max(1, Math.round(frame.width * scale));
+  c.height = Math.max(1, Math.round(frame.height * scale));
+  const g = c.getContext("2d");
+  g.imageSmoothingEnabled = true;
+  g.imageSmoothingQuality = "high";
+  g.drawImage(frame, 0, 0, c.width, c.height);
+  return c;
+}
+
+const art = {};
+
+async function loadArt() {
+  const [background, nest, egg, chick] = await Promise.all([
+    loadImage("assets/background.webp"),
+    loadImage("assets/nest.webp"),
+    loadImage("assets/egg.png"),
+    loadImage("assets/chick.png")
+  ]);
+
+  art.background = background;
+
+  const nestFrame = sliceFrames(removeMagenta(nest), 1)[0];
+  art.nest = scaleFrame(nestFrame, NEST.width / nestFrame.width);
+
+  const eggFrames = sliceFrames(removeMagenta(egg), 3);
+  const eggScale = 82 / eggFrames[0].height;
+  art.egg = eggFrames.map((f) => scaleFrame(f, eggScale));
+
+  // Chick poses: stand, walk A, walk B, peck, sleep, happy
+  const chickFrames = sliceFrames(removeMagenta(chick), 6);
+  const chickScale = 92 / chickFrames[0].height;
+  const [stand, walkA, walkB, peck, sleep, happy] = chickFrames.map((f) => scaleFrame(f, chickScale));
+  art.chick = { stand, walkA, walkB, peck, sleep, happy };
+}
+
+// Small pixel effects (hearts, stars) drawn in code
+function makePixelSprite(rows, colors, size) {
+  const c = document.createElement("canvas");
+  c.width = rows[0].length * size;
+  c.height = rows.length * size;
+  const g = c.getContext("2d");
   rows.forEach((row, y) => {
     [...row].forEach((ch, x) => {
-      if (COLORS[ch]) {
-        g.fillStyle = COLORS[ch];
-        g.fillRect(x, y, 1, 1);
+      if (colors[ch]) {
+        g.fillStyle = colors[ch];
+        g.fillRect(x * size, y * size, size, size);
       }
     });
   });
-  return canvas;
+  return c;
 }
 
-const SPRITES = {
-  chick: makeSprite([
-    "....kkkk....",
-    "...kbybbk...",
-    "..kyybyyyk..",
-    "..kyyyyyykoo",
-    ".kyyyyyyyk..",
-    "kyyywwyyyyk.",
-    "kyywwwyyyyk.",
-    "kyyywwyyyk..",
-    ".kyyyyyyyk..",
-    "..kkkkkkk..."
-  ]),
-  egg: makeSprite([
-    "..kkk..",
-    ".kcdck.",
-    "kcccdck",
-    "kdcccck",
-    "kccdcck",
-    "kcccdck",
-    "kdcccck",
-    ".kcdck.",
-    "..kkk.."
-  ]),
-  heart: makeSprite([".r.r.", "rrrrr", ".rrr.", "..r.."]),
-  star: makeSprite([".s.", "sss", ".s."])
+const FX = {
+  heart: makePixelSprite(
+    [".kk.kk.", "krrkrrk", "krrrrrk", ".krrrk.", "..krk..", "...k..."],
+    { k: "#5a1f2a", r: "#ef5a74" },
+    3
+  ),
+  star: makePixelSprite(
+    ["..k..", ".kyk.", "kyyyk", ".kyk.", "..k.."],
+    { k: "#7a5a12", y: "#ffe066" },
+    3
+  )
 };
-
-// ---------- Background (drawn once) ----------
-
-function makeBackground() {
-  const canvas = document.createElement("canvas");
-  canvas.width = W;
-  canvas.height = H;
-  const g = canvas.getContext("2d");
-  const rect = (x, y, w, h, color) => {
-    g.fillStyle = color;
-    g.fillRect(x, y, w, h);
-  };
-
-  rect(0, 0, W, 34, "#bfe6f5"); // sky
-  rect(80, 4, 7, 7, "#f8d65c"); // sun
-  rect(79, 6, 9, 3, "#f8d65c");
-
-  // Fence
-  for (let x = 2; x < W; x += 10) {
-    rect(x, 14, 6, 20, "#c08a57");
-    rect(x, 14, 6, 2, "#8a5a2b");
-  }
-  rect(0, 19, W, 2, "#8a5a2b");
-  rect(0, 28, W, 2, "#8a5a2b");
-
-  // Grass
-  rect(0, 32, W, H - 32, "#8fcf6a");
-  rect(0, 32, W, 2, "#74b956");
-  for (let i = 0; i < 26; i++) {
-    const x = (i * 37 + 11) % (W - 3);
-    const y = 37 + ((i * 23) % 32);
-    rect(x, y, 1, 2, "#5f9e45");
-    rect(x + 2, y + 1, 1, 1, "#5f9e45");
-  }
-
-  // Flowers
-  [[8, 40, "#f28fb1"], [60, 66, "#ffffff"], [88, 44, "#f6d55c"], [40, 68, "#f28fb1"]].forEach(([x, y, color]) => {
-    rect(x, y + 2, 1, 2, "#3f7a32");
-    rect(x - 1, y, 3, 2, color);
-  });
-
-  // Feeding bowl (empty for now)
-  rect(70, 57, 13, 4, "#7a5236");
-  rect(69, 56, 15, 2, "#5b3b24");
-  rect(71, 56, 11, 1, "#3e2a1b");
-
-  return canvas;
-}
-
-const NEST = { x: 14, y: 52, w: 24, h: 9 };
-
-function drawNestBack(g) {
-  g.fillStyle = "#a8762a";
-  g.fillRect(NEST.x + 2, NEST.y, NEST.w - 4, 3);
-}
-
-function drawNestFront(g) {
-  g.fillStyle = "#c9973f";
-  g.fillRect(NEST.x, NEST.y + 3, NEST.w, 5);
-  g.fillStyle = "#d9a441";
-  g.fillRect(NEST.x + 1, NEST.y + 2, NEST.w - 2, 2);
-  g.fillStyle = "#a8762a";
-  for (let x = NEST.x + 2; x < NEST.x + NEST.w - 2; x += 4) g.fillRect(x, NEST.y + 5, 2, 1);
-  g.fillStyle = "#8a5f22";
-  g.fillRect(NEST.x + 1, NEST.y + 8, NEST.w - 2, 1);
-}
 
 // ---------- Game objects ----------
 
 const canvas = document.getElementById("yard-canvas");
 const ctx = canvas.getContext("2d");
-ctx.imageSmoothingEnabled = false;
-const background = makeBackground();
 
-const clouds = [
-  { x: 10, y: 5, w: 12 },
-  { x: 52, y: 9, w: 9 }
-];
+// Camera: on narrow (phone) screens, show a taller crop centered on the
+// clearing so Pugo looks bigger. Wider screens see the whole yard.
+const view = { x: 0, width: W };
+
+function updateView() {
+  const narrow = window.innerWidth < 600;
+  view.width = narrow ? 600 : W;
+  view.x = narrow ? Math.round(Math.min(W - view.width, Math.max(0, NEST.x - view.width / 2))) : 0;
+  if (canvas.width !== view.width) canvas.width = view.width;
+}
+
+updateView();
+window.addEventListener("resize", updateView);
 
 const egg = {
-  x: NEST.x + 9,
-  y: NEST.y - 5,
+  x: NEST.x,
+  y: NEST.y + 22,
   wobbleTime: 0,
   nextWobble: 2,
   hatching: false,
@@ -273,21 +329,21 @@ const egg = {
 };
 
 const chick = {
-  x: NEST.x + 12,
-  y: NEST.y + 4,
+  x: NEST.x,
+  y: NEST.y + 20,
   face: 1,
   mode: "idle",
   timer: 1.5,
   target: null,
-  speed: 14,
-  frame: 0,
+  speed: 70,
+  walkFrame: 0,
   frameTime: 0,
+  pecking: false,
   pecks: 0,
   emotion: "normal",
   emotionTime: 0,
-  blinkTime: 0,
-  nextBlink: 3,
   hop: 0,
+  hopHeight: 0,
   tapCount: 0,
   tapResetTime: 0
 };
@@ -295,11 +351,14 @@ const chick = {
 let particles = [];
 let time = 0;
 
-const BOUNDS = { left: 6, right: 90, top: 42, bottom: 69 };
-
 function setEmotion(emotion, seconds) {
   chick.emotion = emotion;
   chick.emotionTime = seconds;
+}
+
+function startHop(seconds, height) {
+  chick.hop = seconds;
+  chick.hopHeight = height;
 }
 
 function addParticle(kind, x, y, vx, vy, life) {
@@ -308,7 +367,7 @@ function addParticle(kind, x, y, vx, vy, life) {
 
 function burstHearts(count) {
   for (let i = 0; i < count; i++) {
-    addParticle("heart", chick.x - 2 + (Math.random() * 8 - 4), chick.y - 14, Math.random() * 6 - 3, -10 - Math.random() * 6, 1.2);
+    addParticle("heart", chick.x + (Math.random() * 40 - 20), chick.y - 100, Math.random() * 30 - 15, -50 - Math.random() * 30, 1.2);
   }
 }
 
@@ -318,7 +377,7 @@ function pickNextMode() {
   const roll = Math.random();
   if (roll < 0.5) {
     chick.mode = "walk";
-    chick.speed = 14;
+    chick.speed = 70;
     chick.target = {
       x: BOUNDS.left + Math.random() * (BOUNDS.right - BOUNDS.left),
       y: BOUNDS.top + Math.random() * (BOUNDS.bottom - BOUNDS.top)
@@ -335,39 +394,25 @@ function pickNextMode() {
 function startPecking() {
   chick.mode = "peck";
   chick.pecks = 3;
-  chick.timer = 0.35;
-  chick.frame = 0;
+  chick.pecking = false;
+  chick.timer = 0.3;
 }
 
 function updateChick(dt) {
-  // Emotion timers
   if (chick.emotionTime > 0) {
     chick.emotionTime -= dt;
     if (chick.emotionTime <= 0) chick.emotion = "normal";
   }
 
-  // Blinking
-  chick.nextBlink -= dt;
-  if (chick.nextBlink <= 0) {
-    chick.blinkTime = 0.15;
-    chick.nextBlink = 2 + Math.random() * 3;
-  }
-  if (chick.blinkTime > 0) chick.blinkTime -= dt;
-
-  // Tap combo resets after a short pause
   if (chick.tapResetTime > 0) {
     chick.tapResetTime -= dt;
     if (chick.tapResetTime <= 0) chick.tapCount = 0;
   }
 
-  // Hopping (happy / excited)
   if (chick.hop > 0) chick.hop = Math.max(0, chick.hop - dt);
 
   if (chick.mode === "react") {
     chick.timer -= dt;
-    if (chick.emotion === "dizzy" && Math.random() < dt * 4) {
-      chick.face *= -1;
-    }
     if (chick.timer <= 0) {
       chick.mode = "idle";
       chick.timer = 0.8;
@@ -385,8 +430,8 @@ function updateChick(dt) {
     const dx = chick.target.x - chick.x;
     const dy = chick.target.y - chick.y;
     const dist = Math.hypot(dx, dy);
-    if (dist < 1) {
-      if (chick.speed > 14) {
+    if (dist < 3) {
+      if (chick.speed > 70) {
         startPecking();
       } else {
         chick.mode = "idle";
@@ -397,11 +442,11 @@ function updateChick(dt) {
     const step = Math.min(dist, chick.speed * dt);
     chick.x += (dx / dist) * step;
     chick.y += (dy / dist) * step;
-    if (Math.abs(dx) > 0.5) chick.face = dx > 0 ? 1 : -1;
+    if (Math.abs(dx) > 2) chick.face = dx > 0 ? 1 : -1;
     chick.frameTime += dt;
-    if (chick.frameTime > 0.14) {
+    if (chick.frameTime > 0.16) {
       chick.frameTime = 0;
-      chick.frame = 1 - chick.frame;
+      chick.walkFrame = 1 - chick.walkFrame;
     }
     return;
   }
@@ -409,11 +454,13 @@ function updateChick(dt) {
   if (chick.mode === "peck") {
     chick.timer -= dt;
     if (chick.timer <= 0) {
-      chick.frame = 1 - chick.frame;
-      chick.timer = 0.3;
-      if (chick.frame === 1) {
+      chick.pecking = !chick.pecking;
+      chick.timer = 0.28;
+      if (chick.pecking) {
         sfx.peck();
-        addParticle("dust", chick.x + chick.face * 6, chick.y - 1, chick.face * 3, -6, 0.35);
+        for (let i = 0; i < 3; i++) {
+          addParticle("dust", chick.x + chick.face * 36, chick.y - 2, chick.face * (10 + Math.random() * 20), -20 - Math.random() * 20, 0.4);
+        }
       } else {
         chick.pecks -= 1;
         if (chick.pecks <= 0) {
@@ -429,12 +476,12 @@ function updateEgg(dt) {
   if (egg.hatching) {
     egg.hatchTime += dt;
     const t = egg.hatchTime;
-    const cracksDue = t > 1.3 ? 3 : t > 0.9 ? 2 : t > 0.5 ? 1 : 0;
+    const cracksDue = t > 1.2 ? 2 : t > 0.6 ? 1 : 0;
     if (cracksDue > egg.cracks) {
       egg.cracks = cracksDue;
       sfx.crack();
     }
-    if (t > 1.7) finishHatch();
+    if (t > 1.8) finishHatch();
     return;
   }
 
@@ -451,140 +498,127 @@ function updateParticles(dt) {
     p.life -= dt;
     p.x += p.vx * dt;
     p.y += p.vy * dt;
-    if (p.kind === "shell") p.vy += 60 * dt;
+    if (p.kind === "shell" || p.kind === "dust") p.vy += 240 * dt;
   });
   particles = particles.filter((p) => p.life > 0);
 }
 
 // ---------- Drawing ----------
 
-function px(x, y, color) {
-  ctx.fillStyle = color;
-  ctx.fillRect(x, y, 1, 1);
+function drawShadow(x, y, width) {
+  ctx.fillStyle = "rgba(30, 50, 20, 0.28)";
+  ctx.beginPath();
+  ctx.ellipse(x, y, width / 2, width / 7, 0, 0, Math.PI * 2);
+  ctx.fill();
 }
 
-function drawEyes() {
-  const dark = "#2a1a0e";
-  const blush = "#f29a9a";
-  const emotion = chick.emotion;
-
-  if (emotion === "dizzy") {
-    px(6, 1, dark); px(8, 1, dark); px(7, 2, dark); px(6, 3, dark); px(8, 3, dark);
-    return;
-  }
-  if (emotion === "happy") {
-    px(6, 3, dark); px(7, 2, dark); px(8, 3, dark);
-    px(8, 4, blush);
-    return;
-  }
-  if (emotion === "excited") {
-    px(7, 1, "#ffffff"); px(8, 1, dark); px(7, 2, dark); px(8, 2, dark);
-    px(8, 4, blush);
-    return;
-  }
-  if (chick.blinkTime > 0) {
-    px(6, 2, "#a8742f"); px(7, 2, "#a8742f");
-    return;
-  }
-  px(7, 2, dark);
-}
-
-function drawChick() {
-  const pecking = chick.mode === "peck" && chick.frame === 1;
-  const walking = chick.mode === "walk";
-  const bob = walking && chick.frame === 1 ? -1 : 0;
-  const hop = chick.hop > 0 ? -Math.round(Math.abs(Math.sin(chick.hop * 10)) * 4) : 0;
-  const x = Math.round(chick.x);
-  const y = Math.round(chick.y);
-
-  // Shadow
-  ctx.fillStyle = "rgba(40, 60, 20, 0.25)";
-  ctx.fillRect(x - 4, y, 9, 1);
-
-  ctx.save();
-  ctx.translate(x, y + bob + hop);
-  if (chick.face < 0) ctx.scale(-1, 1);
-  ctx.translate(-6, -11);
-
-  // Feet
-  ctx.fillStyle = COLORS.o;
-  if (walking && chick.frame === 1) {
-    ctx.fillRect(4, 10, 1, 1);
-    ctx.fillRect(6, 10, 1, 1);
-  } else {
-    ctx.fillRect(3, 10, 2, 1);
-    ctx.fillRect(7, 10, 2, 1);
-  }
-
-  if (pecking) {
-    ctx.translate(1, 2);
-  }
-  ctx.drawImage(SPRITES.chick, 0, 0);
-  drawEyes();
-  ctx.restore();
-
-  // Dizzy stars circle the head
-  if (chick.emotion === "dizzy") {
-    for (let i = 0; i < 3; i++) {
-      const angle = time * 5 + (i * Math.PI * 2) / 3;
-      ctx.drawImage(SPRITES.star, Math.round(x - 1 + Math.cos(angle) * 6), Math.round(y - 15 + Math.sin(angle) * 2));
-    }
-  }
+function drawNest() {
+  ctx.drawImage(art.nest, Math.round(NEST.x - art.nest.width / 2), Math.round(NEST.y - art.nest.height / 2));
 }
 
 function drawEgg() {
-  let shake = 0;
+  const frame = art.egg[egg.cracks];
+  let angle = 0;
   if (egg.hatching) {
-    shake = Math.round(Math.sin(egg.hatchTime * 40) * (1 + egg.hatchTime));
+    angle = Math.sin(egg.hatchTime * 30) * (0.08 + egg.hatchTime * 0.08);
   } else if (egg.wobbleTime > 0) {
-    shake = Math.round(Math.sin(egg.wobbleTime * 30));
+    angle = Math.sin(egg.wobbleTime * 25) * 0.12;
   }
-  const x = egg.x + Math.max(-2, Math.min(2, shake));
-  ctx.drawImage(SPRITES.egg, x, egg.y);
-
-  // Cracks appear one by one while hatching
-  const crack = [[1, 4], [2, 3], [3, 4], [4, 3], [5, 4]];
-  const shown = egg.cracks === 0 ? 0 : egg.cracks === 1 ? 2 : egg.cracks === 2 ? 4 : 5;
-  for (let i = 0; i < shown; i++) px(x + crack[i][0], egg.y + crack[i][1], COLORS.k);
+  ctx.save();
+  ctx.translate(egg.x, egg.y);
+  ctx.rotate(angle);
+  ctx.drawImage(frame, -frame.width / 2, -frame.height);
+  ctx.restore();
 }
 
-function drawClouds() {
-  ctx.fillStyle = "#ffffff";
-  clouds.forEach((c) => {
-    const x = Math.round(c.x);
-    ctx.fillRect(x, c.y, c.w, 3);
-    ctx.fillRect(x + 2, c.y - 2, c.w - 5, 2);
-  });
+function chickFrame() {
+  if (chick.emotion === "happy" || chick.emotion === "excited") return art.chick.happy;
+  if (chick.mode === "walk") return chick.walkFrame ? art.chick.walkB : art.chick.walkA;
+  if (chick.mode === "peck" && chick.pecking) return art.chick.peck;
+  return art.chick.stand;
+}
+
+function drawChick() {
+  const frame = chickFrame();
+  const x = chick.x;
+  const y = chick.y;
+
+  // Hop height, plus squash and stretch for a bouncy feel
+  let lift = 0;
+  let scaleX = 1;
+  let scaleY = 1;
+  if (chick.hop > 0) {
+    const bounce = Math.abs(Math.sin(chick.hop * 12));
+    lift = bounce * chick.hopHeight;
+    scaleX = 1 - bounce * 0.08;
+    scaleY = 1 + bounce * 0.1;
+  } else if (chick.mode === "walk") {
+    lift = chick.walkFrame ? 2 : 0;
+  } else if (chick.mode !== "peck") {
+    const breath = Math.sin(time * 3) * 0.025;
+    scaleX = 1 + breath;
+    scaleY = 1 - breath;
+  }
+
+  let tilt = 0;
+  if (chick.emotion === "dizzy") tilt = Math.sin(time * 9) * 0.15;
+
+  drawShadow(x, y, frame.width * 0.7 * (1 - lift / 120));
+
+  ctx.save();
+  ctx.translate(x, y - lift);
+  ctx.rotate(tilt);
+  ctx.scale(scaleX * chick.face, scaleY);
+  ctx.drawImage(frame, -frame.width / 2, -frame.height);
+  ctx.restore();
+
+  if (chick.emotion === "dizzy") {
+    for (let i = 0; i < 3; i++) {
+      const angle = time * 5 + (i * Math.PI * 2) / 3;
+      const sx = x + Math.cos(angle) * 36 - FX.star.width / 2;
+      const sy = y - 104 + Math.sin(angle) * 8;
+      ctx.drawImage(FX.star, Math.round(sx), Math.round(sy));
+    }
+  }
 }
 
 function drawParticles() {
   particles.forEach((p) => {
-    const x = Math.round(p.x);
-    const y = Math.round(p.y);
+    const fade = Math.min(1, p.life / (p.max * 0.4));
+    ctx.globalAlpha = fade;
     if (p.kind === "heart") {
-      if (p.life > 0.25 || Math.floor(p.life * 20) % 2 === 0) ctx.drawImage(SPRITES.heart, x, y);
+      ctx.drawImage(FX.heart, Math.round(p.x), Math.round(p.y));
     } else if (p.kind === "star") {
-      ctx.drawImage(SPRITES.star, x, y);
+      ctx.drawImage(FX.star, Math.round(p.x), Math.round(p.y));
     } else if (p.kind === "shell") {
-      px(x, y, COLORS.c);
-      px(x + 1, y, COLORS.d);
+      ctx.fillStyle = "#efdcb4";
+      ctx.fillRect(Math.round(p.x), Math.round(p.y), 6, 5);
+      ctx.fillStyle = "#7a4e2c";
+      ctx.fillRect(Math.round(p.x) + 2, Math.round(p.y) + 1, 2, 2);
     } else if (p.kind === "dust") {
-      px(x, y, "#c7b27a");
+      ctx.fillStyle = "#d8c690";
+      ctx.fillRect(Math.round(p.x), Math.round(p.y), 4, 4);
     } else if (p.kind === "spark") {
-      if (Math.floor(p.life * 12) % 2 === 0) px(x, y, "#fff4b0");
+      ctx.fillStyle = "#fff6c4";
+      const s = Math.floor(p.life * 10) % 2 === 0 ? 6 : 3;
+      ctx.fillRect(Math.round(p.x - s / 2), Math.round(p.y - s / 2), s, s);
     }
   });
+  ctx.globalAlpha = 1;
 }
 
 function draw() {
-  ctx.drawImage(background, 0, 0);
-  drawClouds();
-  drawNestBack(ctx);
+  ctx.setTransform(1, 0, 0, 1, -view.x, 0);
+  ctx.drawImage(art.background, 0, 0, W, H);
   if (state.stage === "egg") {
+    drawNest();
     drawEgg();
-    drawNestFront(ctx);
+  } else if (chick.y < NEST.y - 20) {
+    // Pugo is behind the nest
+    drawChick();
+    drawNest();
   } else {
-    drawNestFront(ctx);
+    drawNest();
     drawChick();
   }
   drawParticles();
@@ -598,11 +632,6 @@ function loop(now) {
   const dt = Math.min(0.05, (now - lastFrame) / 1000);
   lastFrame = now;
   time += dt;
-
-  clouds.forEach((c) => {
-    c.x += 1.5 * dt;
-    if (c.x > W) c.x = -c.w;
-  });
 
   if (state.stage === "egg") updateEgg(dt);
   else updateChick(dt);
@@ -625,13 +654,15 @@ const amountInput = document.getElementById("amount-input");
 const amountError = document.getElementById("amount-error");
 
 let tappedOnce = false;
+let ready = false;
 
 function renderUI() {
   totalEl.textContent = peso.format(totalSaved());
   muteButton.setAttribute("aria-pressed", String(state.muted));
   muteButton.setAttribute("aria-label", state.muted ? "Unmute sounds" : "Mute sounds");
+  if (!ready) return;
   if (state.stage === "egg") {
-    hintEl.textContent = "Save anything to hatch Pugo";
+    hintEl.textContent = egg.hatching ? "" : "Save anything to hatch Pugo";
   } else if (!tappedOnce) {
     hintEl.textContent = "Tap Pugo to say hi";
   } else {
@@ -655,7 +686,7 @@ function startHatch() {
   egg.hatching = true;
   egg.hatchTime = 0;
   egg.cracks = 0;
-  hintEl.textContent = "";
+  renderUI();
   sfx.tapTap();
 }
 
@@ -664,19 +695,19 @@ function finishHatch() {
   state.stage = "chick";
   saveState();
 
-  chick.x = egg.x + 3;
-  chick.y = NEST.y + 4;
+  chick.x = egg.x;
+  chick.y = NEST.y + 20;
   chick.face = 1;
   chick.mode = "react";
   chick.timer = 1.6;
-  chick.hop = 0.6;
+  startHop(0.6, 26);
   setEmotion("excited", 1.6);
 
-  for (let i = 0; i < 8; i++) {
-    addParticle("shell", egg.x + 3, egg.y + 4, Math.random() * 30 - 15, -20 - Math.random() * 15, 0.8);
-  }
   for (let i = 0; i < 10; i++) {
-    addParticle("spark", egg.x + 3 + Math.random() * 16 - 8, egg.y + Math.random() * 10 - 6, 0, -4, 1);
+    addParticle("shell", egg.x, egg.y - 30, Math.random() * 160 - 80, -120 - Math.random() * 80, 0.9);
+  }
+  for (let i = 0; i < 14; i++) {
+    addParticle("spark", egg.x + Math.random() * 90 - 45, egg.y - 30 - Math.random() * 60, 0, -20, 1);
   }
   sfx.pop();
   setTimeout(sfx.peep, 250);
@@ -689,10 +720,10 @@ function finishHatch() {
 function celebrateSaving() {
   chick.mode = "react";
   chick.timer = 1.4;
-  chick.hop = 0.6;
+  startHop(0.8, 34);
   setEmotion("excited", 1.4);
-  for (let i = 0; i < 8; i++) {
-    addParticle("spark", chick.x + Math.random() * 14 - 7, chick.y - 6 - Math.random() * 10, 0, -6, 0.9);
+  for (let i = 0; i < 12; i++) {
+    addParticle("spark", chick.x + Math.random() * 80 - 40, chick.y - 30 - Math.random() * 60, 0, -30, 0.9);
   }
   sfx.happyChirp();
   setTimeout(sfx.jingle, 300);
@@ -705,6 +736,7 @@ function addSaving(amount) {
   floatText("+" + peso.format(amount));
   announce("Saved " + peso.format(amount) + ". Total " + peso.format(totalSaved()) + ".");
 
+  if (!ready) return;
   if (state.stage === "egg") {
     if (!egg.hatching) startHatch();
   } else {
@@ -716,17 +748,17 @@ function addSaving(amount) {
 function toYard(event) {
   const rect = canvas.getBoundingClientRect();
   return {
-    x: ((event.clientX - rect.left) / rect.width) * W,
+    x: view.x + ((event.clientX - rect.left) / rect.width) * view.width,
     y: ((event.clientY - rect.top) / rect.height) * H
   };
 }
 
 function hitsChick(point) {
-  return point.x > chick.x - 8 && point.x < chick.x + 8 && point.y > chick.y - 14 && point.y < chick.y + 3;
+  return point.x > chick.x - 52 && point.x < chick.x + 52 && point.y > chick.y - 105 && point.y < chick.y + 14;
 }
 
 function hitsEgg(point) {
-  return point.x > egg.x - 3 && point.x < egg.x + 10 && point.y > egg.y - 3 && point.y < egg.y + 12;
+  return point.x > egg.x - 48 && point.x < egg.x + 48 && point.y > egg.y - 100 && point.y < egg.y + 16;
 }
 
 function petChick() {
@@ -750,13 +782,14 @@ function petChick() {
   if (chick.emotion === "dizzy") return;
   chick.mode = "react";
   chick.timer = 1.1;
-  chick.hop = 0.3;
+  startHop(0.3, 16);
   setEmotion("happy", 1.1);
   burstHearts(2);
   sfx.coo();
 }
 
 canvas.addEventListener("pointerdown", (event) => {
+  if (!ready) return;
   const point = toYard(event);
 
   if (state.stage === "egg") {
@@ -772,16 +805,16 @@ canvas.addEventListener("pointerdown", (event) => {
     return;
   }
 
-  // Tap the ground: Pugo runs over to check it out
+  // Tap the grass: Pugo runs over to check it out
   if (chick.mode === "react") return;
   chick.mode = "walk";
-  chick.speed = 26;
+  chick.speed = 130;
   chick.target = {
     x: Math.max(BOUNDS.left, Math.min(BOUNDS.right, point.x)),
-    y: Math.max(BOUNDS.top, Math.min(BOUNDS.bottom, point.y + 5))
+    y: Math.max(BOUNDS.top, Math.min(BOUNDS.bottom, point.y))
   };
   sfx.peep();
-  addParticle("star", point.x - 1, point.y - 1, 0, -4, 0.4);
+  addParticle("star", point.x - FX.star.width / 2, point.y - FX.star.height / 2, 0, -20, 0.4);
 });
 
 // Mute
@@ -852,5 +885,18 @@ document.getElementById("reset-button").addEventListener("click", () => {
   renderUI();
 });
 
+// ---------- Start ----------
+
 renderUI();
-requestAnimationFrame(loop);
+hintEl.textContent = "Loading…";
+
+loadArt()
+  .then(() => {
+    ready = true;
+    renderUI();
+    requestAnimationFrame(loop);
+  })
+  .catch((error) => {
+    console.error(error);
+    hintEl.textContent = "Couldn't load the art. Open the game through a local server, not by double-clicking the file.";
+  });

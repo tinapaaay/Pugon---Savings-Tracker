@@ -13,6 +13,10 @@
 
 <body>
   <div class="app">
+    <div class="corners" aria-hidden="true">
+      <span></span><span></span><span></span><span></span>
+    </div>
+
     <header class="top-bar">
       <h1 class="logo">Pugo</h1>
 
@@ -35,7 +39,7 @@
 
     <main class="stage">
       <div class="yard">
-        <canvas id="yard-canvas" width="96" height="72" role="img" aria-label="Pugo's backyard"></canvas>
+        <canvas id="yard-canvas" width="1024" height="765" role="img" aria-label="Pugo's backyard"></canvas>
         <p class="hint" id="hint"></p>
         <div class="floaters" id="floaters" aria-hidden="true"></div>
       </div>
