@@ -92,18 +92,38 @@ button {
   margin-right: auto;
 }
 
-.stat {
+.stats {
   display: flex;
-  flex-direction: column;
-  align-items: flex-end;
-  min-width: 96px;
   background: var(--panel);
   border: 3px solid var(--wood-light);
   outline: 2px solid var(--panel);
   box-shadow: 0 0 0 5px var(--wood-light);
   border-radius: 4px;
-  padding: 3px 10px;
   margin: 5px;
+}
+
+.stat {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  padding: 3px 10px;
+}
+
+.stat + .stat {
+  border-left: 2px dashed var(--line);
+}
+
+/* Pixel-style coin */
+.coin {
+  display: inline-block;
+  width: 14px;
+  height: 14px;
+  margin-right: 4px;
+  vertical-align: -1px;
+  background: #ffd23f;
+  border: 2px solid #b8860b;
+  border-radius: 50%;
+  box-shadow: inset -2px -2px 0 #e9a700, inset 2px 2px 0 #fff3a8;
 }
 
 .stat-label {
@@ -246,8 +266,15 @@ button {
   to { opacity: 0; transform: translate(-50%, -60px) scale(1); }
 }
 
-/* Wooden button */
+/* Wooden buttons */
+.actions {
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
+}
+
 .save-button,
+.shop-button,
 .primary-button {
   position: relative;
   background: var(--accent);
@@ -263,17 +290,25 @@ button {
   transition: transform 0.08s, box-shadow 0.08s;
 }
 
-.save-button {
-  padding: 20px;
+.save-button,
+.shop-button {
+  padding: 20px 10px;
   font-size: 1.35rem;
 }
 
+.shop-button {
+  background: #5fa34a;
+  text-shadow: 0 2px 0 #3f7a32;
+}
+
 .save-button:hover,
+.shop-button:hover,
 .primary-button:hover {
   filter: brightness(1.05);
 }
 
 .save-button:active,
+.shop-button:active,
 .primary-button:active {
   transform: translateY(4px);
   box-shadow:
@@ -371,4 +406,152 @@ dialog input[aria-invalid="true"] {
   align-items: center;
   gap: 8px;
   margin-top: 6px;
+}
+
+.floater-coins {
+  top: 42%;
+  font-size: 1.1rem;
+  color: #ffd23f;
+}
+
+/* Shop */
+.shop-dialog {
+  width: min(94vw, 440px);
+  max-height: 88vh;
+  overflow-y: auto;
+}
+
+.shop-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.shop-head h2 {
+  margin-right: auto;
+}
+
+.shop-balance {
+  font-weight: 800;
+  background: #fff;
+  border: 2px solid var(--line);
+  border-radius: 999px;
+  padding: 2px 10px;
+}
+
+.close-button {
+  width: 36px;
+  height: 36px;
+  border: 3px solid var(--wood-dark);
+  border-radius: 6px;
+  background: var(--panel);
+  font-size: 1.3rem;
+  line-height: 1;
+}
+
+.shop-message {
+  min-height: 1.4em;
+  margin: 6px 0 2px;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--error);
+}
+
+.shop-section {
+  font-size: 0.8rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--muted);
+  margin: 8px 0 6px;
+}
+
+.shop-list {
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.shop-item {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  background: #fff;
+  border: 3px solid var(--line);
+  border-radius: 10px;
+  padding: 8px 10px;
+}
+
+.shop-icon {
+  width: 48px;
+  height: 48px;
+  object-fit: contain;
+  image-rendering: pixelated;
+  flex-shrink: 0;
+}
+
+.shop-info {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-width: 0;
+}
+
+.shop-info span {
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.buy-button {
+  min-width: 72px;
+  padding: 8px 10px;
+  background: var(--accent);
+  color: #fff;
+  font-weight: 800;
+  border: 3px solid var(--wood-dark);
+  border-radius: 8px;
+  box-shadow: 0 3px 0 var(--wood-dark);
+  white-space: nowrap;
+}
+
+.buy-button:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 var(--wood-dark);
+}
+
+.shop-item.locked {
+  background: #f4ede0;
+}
+
+.shop-item.locked .shop-icon {
+  filter: grayscale(1) opacity(0.5);
+}
+
+.shop-item.locked .buy-button {
+  background: #b9ab96;
+}
+
+/* Small phones */
+@media (max-width: 420px) {
+  .app {
+    padding: 20px 14px;
+  }
+
+  .logo {
+    font-size: 1rem;
+  }
+
+  .stat {
+    padding: 2px 7px;
+  }
+
+  .stat-value {
+    font-size: 0.9rem;
+  }
+
+  .save-button,
+  .shop-button {
+    font-size: 1.1rem;
+    padding: 16px 8px;
+  }
 }

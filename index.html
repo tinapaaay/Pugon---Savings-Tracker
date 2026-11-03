@@ -20,9 +20,15 @@
     <header class="top-bar">
       <h1 class="logo">Pugo</h1>
 
-      <div class="stat" aria-label="Total saved">
-        <span class="stat-label">Saved</span>
-        <strong class="stat-value" id="total-saved">₱0</strong>
+      <div class="stats">
+        <div class="stat">
+          <span class="stat-label">Saved</span>
+          <strong class="stat-value" id="total-saved">₱0</strong>
+        </div>
+        <div class="stat">
+          <span class="stat-label">Coins</span>
+          <strong class="stat-value"><span class="coin" aria-hidden="true"></span><span id="coin-count">0</span></strong>
+        </div>
       </div>
 
       <button class="icon-button" id="mute-button" type="button" aria-pressed="false" aria-label="Mute sounds">
@@ -44,9 +50,12 @@
         <div class="floaters" id="floaters" aria-hidden="true"></div>
       </div>
 
-      <button class="save-button" id="save-button" type="button">
-        <span aria-hidden="true">+</span> Add savings
-      </button>
+      <div class="actions">
+        <button class="save-button" id="save-button" type="button">
+          <span aria-hidden="true">+</span> Add savings
+        </button>
+        <button class="shop-button" id="shop-button" type="button">Shop</button>
+      </div>
 
       <p class="sr-only" id="announcer" aria-live="polite"></p>
     </main>
@@ -76,6 +85,21 @@
         <button class="primary-button" type="submit">Save</button>
       </div>
     </form>
+  </dialog>
+
+  <dialog id="shop-dialog" class="shop-dialog" aria-labelledby="shop-title">
+    <div class="shop-head">
+      <h2 id="shop-title">Shop</h2>
+      <p class="shop-balance"><span class="coin" aria-hidden="true"></span><span id="shop-coins">0</span> coins</p>
+      <button class="close-button" type="button" id="close-shop" aria-label="Close shop">×</button>
+    </div>
+    <p class="shop-message" id="shop-message" role="status"></p>
+
+    <h3 class="shop-section">Everyday food</h3>
+    <ul class="shop-list" id="shop-everyday"></ul>
+
+    <h3 class="shop-section">Treats</h3>
+    <ul class="shop-list" id="shop-treats"></ul>
   </dialog>
 
   <script src="script.js"></script>

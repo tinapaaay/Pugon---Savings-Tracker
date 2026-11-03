@@ -7,20 +7,34 @@ const W = 1024;
 const H = 765;
 
 // Where things sit in the background image (in image pixels)
-const NEST = { x: 565, y: 262, width: 200 };
-const BOUNDS = { left: 420, right: 740, top: 200, bottom: 390 };
+const NEST = { x: 475, y: 238, width: 200 };
+const BOUNDS = { left: 330, right: 725, top: 175, bottom: 400 };
+const CLEARING_CENTER_X = 530; // the phone camera centers here
 
 // ---------- Saved state ----------
 
+const PESOS_PER_COIN = 10;
+const STARTER_COINS = 10;
+
 function freshState() {
-  return { entries: [], stage: "egg", muted: false };
+  return { entries: [], stage: "egg", muted: false, coins: 0, lastFedAt: null };
+}
+
+function coinsFor(amount) {
+  return Math.floor(amount / PESOS_PER_COIN);
 }
 
 function loadState() {
   try {
     const data = JSON.parse(localStorage.getItem(STORAGE_KEY));
     if (data && Array.isArray(data.entries)) {
-      return { ...freshState(), ...data };
+      const loaded = { ...freshState(), ...data };
+      // Saves from before coins existed: give the coins they would have earned
+      if (typeof data.coins !== "number") {
+        const earned = data.entries.reduce((sum, entry) => sum + coinsFor(entry.amount), 0);
+        loaded.coins = earned + (loaded.stage === "egg" ? 0 : STARTER_COINS);
+      }
+      return loaded;
     }
   } catch (error) {
     // Bad or blocked storage: start fresh.
@@ -129,7 +143,18 @@ const sfx = {
     tone(1568, 1568, 0.09, "square", 0.05, 0.08);
     tone(2093, 2093, 0.16, "square", 0.05, 0.16);
   },
-  peck: () => noise(0.025, 0.08, 4000)
+  peck: () => noise(0.025, 0.08, 4000),
+  crunch: () => {
+    noise(0.05, 0.3, 1300);
+    noise(0.04, 0.22, 2300, 0.05);
+  },
+  burp: () => tone(230, 90, 0.32, "sawtooth", 0.07),
+  coin: () => {
+    tone(1568, 1568, 0.06, "square", 0.05);
+    tone(2093, 2093, 0.14, "square", 0.05, 0.06);
+  },
+  thud: () => noise(0.08, 0.35, 320),
+  nope: () => tone(320, 200, 0.16, "square", 0.04)
 };
 
 // ---------- Loading the art ----------
@@ -267,6 +292,18 @@ async function loadArt() {
   const chickScale = 92 / chickFrames[0].height;
   const [stand, walkA, walkB, peck, sleep, happy] = chickFrames.map((f) => scaleFrame(f, chickScale));
   art.chick = { stand, walkA, walkB, peck, sleep, happy };
+
+  // Food art is optional: use placeholders when assets/food.png is missing
+  art.food = {};
+  FOODS.forEach((food) => (art.food[food.id] = placeholderFood(food.id)));
+  try {
+    const sheet = await loadImage("assets/food.png");
+    const frames = sliceFrames(removeMagenta(sheet), FOODS.length);
+    const foodScale = 44 / Math.max(...frames.map((f) => f.height));
+    FOODS.forEach((food, i) => (art.food[food.id] = scaleFrame(frames[i], foodScale)));
+  } catch (error) {
+    // No food sheet yet
+  }
 }
 
 // Small pixel effects (hearts, stars) drawn in code
@@ -299,6 +336,39 @@ const FX = {
   )
 };
 
+// ---------- Food ----------
+// Bites = how many pecks it takes to finish. Locked treats open with goals (Phase 4).
+
+const FOODS = [
+  { id: "seeds", name: "Seeds", price: 3, kind: "everyday", bites: 2, note: "A quick snack" },
+  { id: "worm", name: "Worm", price: 6, kind: "everyday", bites: 3, note: "Happy chirp" },
+  { id: "berries", name: "Berries", price: 10, kind: "everyday", bites: 3, note: "Extra hearts" },
+  { id: "pandesal", name: "Pandesal", price: 40, kind: "treat", bites: 4, note: "Happy dance" },
+  { id: "ensaymada", name: "Ensaymada", price: 60, kind: "treat", bites: 4, note: "Happy dance", lockedNote: "Unlocks when a goal reaches 25%" },
+  { id: "turon", name: "Turon", price: 90, kind: "treat", bites: 5, note: "Special dance", lockedNote: "Unlocks when a goal reaches 50%" },
+  { id: "lechon", name: "Lechon", price: 200, kind: "treat", bites: 6, note: "Big celebration", lockedNote: "Unlocks when a goal reaches 100%" }
+];
+
+function isUnlocked(food) {
+  return !food.lockedNote; // Goals arrive in Phase 4
+}
+
+// Simple placeholder icons until assets/food.png is made in Gemini
+const FOOD_PIXELS = {
+  seeds: [["..a....a", "a...a...", "..a...a.", ".a..a..a", "a..a...."], { a: "#b98a3e" }],
+  worm: [["....kpp.", "...kppek", "kk.kpppk", "kppkppk.", ".kppk..."], { k: "#7a2f3d", p: "#ef8fa6", e: "#2b1a10" }],
+  berries: [["...g.g..", "..g..g..", ".krkkrk.", "krhrkrhr", "krrrkrrr", ".kkk.kk."], { k: "#5a1424", r: "#d23a4a", h: "#ff9aa6", g: "#4f8f3d" }],
+  pandesal: [["..kkkk..", ".kbllbk.", "kbllbbbk", "kbbbbbbk", ".kkkkkk."], { k: "#6b3f1c", b: "#c98a4a", l: "#e8b877" }],
+  ensaymada: [[".kkkkk.", "kwywywk", "kywwwyk", "kwywywk", ".kkkkk."], { k: "#8a5a2b", w: "#fff4d6", y: "#f2c94c" }],
+  turon: [["kkkkkkkk", "kyyyyyyk", "kbybybyk", "kkkkkkkk"], { k: "#6b3f1c", y: "#e9b44c", b: "#a8652a" }],
+  lechon: [[".kkkkkk..", "kbbbbbbkk", "kbhbbbbbk", "kbbbbbbek", ".kkkkkkk.", ".k.k..k.k"], { k: "#5a2a12", b: "#c46a2c", h: "#e89a5a", e: "#2b1a10" }]
+};
+
+function placeholderFood(id) {
+  const [rows, colors] = FOOD_PIXELS[id];
+  return makePixelSprite(rows, colors, 5);
+}
+
 // ---------- Game objects ----------
 
 const canvas = document.getElementById("yard-canvas");
@@ -311,7 +381,7 @@ const view = { x: 0, width: W };
 function updateView() {
   const narrow = window.innerWidth < 600;
   view.width = narrow ? 600 : W;
-  view.x = narrow ? Math.round(Math.min(W - view.width, Math.max(0, NEST.x - view.width / 2))) : 0;
+  view.x = narrow ? Math.round(Math.min(W - view.width, Math.max(0, CLEARING_CENTER_X - view.width / 2))) : 0;
   if (canvas.width !== view.width) canvas.width = view.width;
 }
 
@@ -345,10 +415,12 @@ const chick = {
   hop: 0,
   hopHeight: 0,
   tapCount: 0,
-  tapResetTime: 0
+  tapResetTime: 0,
+  foodTarget: null
 };
 
 let particles = [];
+let foods = []; // food dropped in the yard
 let time = 0;
 
 function setEmotion(emotion, seconds) {
@@ -373,11 +445,36 @@ function burstHearts(count) {
 
 // ---------- Behavior ----------
 
+function nearestFood() {
+  let best = null;
+  foods.forEach((food) => {
+    if (!food.landed) return;
+    const dist = Math.hypot(food.x - chick.x, food.y - chick.y);
+    if (!best || dist < best.dist) best = { food, dist };
+  });
+  return best && best.food;
+}
+
+function goToFood(food) {
+  // Stand beside the food so the beak reaches it
+  const fromLeft = chick.x <= food.x;
+  chick.foodTarget = food;
+  chick.mode = "walk";
+  chick.speed = 150;
+  chick.target = { x: food.x + (fromLeft ? -40 : 40), y: food.y };
+}
+
 function pickNextMode() {
+  const food = nearestFood();
+  if (food) {
+    goToFood(food);
+    return;
+  }
   const roll = Math.random();
   if (roll < 0.5) {
     chick.mode = "walk";
     chick.speed = 70;
+    chick.foodTarget = null;
     chick.target = {
       x: BOUNDS.left + Math.random() * (BOUNDS.right - BOUNDS.left),
       y: BOUNDS.top + Math.random() * (BOUNDS.bottom - BOUNDS.top)
@@ -398,6 +495,131 @@ function startPecking() {
   chick.timer = 0.3;
 }
 
+function startEating(food) {
+  if (!foods.includes(food)) {
+    // Food is gone (eaten or cleared): look for another
+    chick.foodTarget = null;
+    chick.mode = "idle";
+    chick.timer = 0.2;
+    return;
+  }
+  chick.mode = "eat";
+  chick.face = food.x >= chick.x ? 1 : -1;
+  chick.pecking = false;
+  chick.timer = 0.25;
+}
+
+function updateEating(dt) {
+  const food = chick.foodTarget;
+  if (!foods.includes(food)) {
+    chick.foodTarget = null;
+    chick.mode = "idle";
+    chick.timer = 0.2;
+    return;
+  }
+  chick.timer -= dt;
+  if (chick.timer > 0) return;
+
+  chick.pecking = !chick.pecking;
+  chick.timer = 0.26;
+  if (!chick.pecking) return;
+
+  // One bite
+  sfx.crunch();
+  food.bitesLeft -= 1;
+  for (let i = 0; i < 4; i++) {
+    addParticle("crumb", food.x, food.y - 10, Math.random() * 80 - 40, -60 - Math.random() * 50, 0.5);
+  }
+  if (food.bitesLeft <= 0) finishEating(food);
+}
+
+function finishEating(food) {
+  foods = foods.filter((f) => f !== food);
+  chick.foodTarget = null;
+  state.lastFedAt = new Date().toISOString();
+  saveState();
+
+  const info = FOODS.find((f) => f.id === food.id);
+  chick.mode = "react";
+  chick.pecking = false;
+
+  if (info.kind === "treat") {
+    // Treats: happy dance and a little burp
+    chick.timer = 2;
+    startHop(1.6, 30);
+    setEmotion("excited", 2);
+    burstHearts(4);
+    for (let i = 0; i < 14; i++) {
+      addParticle("spark", chick.x + Math.random() * 90 - 45, chick.y - 30 - Math.random() * 70, 0, -30, 1);
+    }
+    sfx.happyChirp();
+    setTimeout(sfx.burp, 700);
+  } else {
+    chick.timer = 1.2;
+    startHop(0.3, 14);
+    setEmotion("happy", 1.2);
+    burstHearts(food.id === "berries" ? 4 : 2);
+    if (food.id === "worm") sfx.happyChirp();
+    else sfx.coo();
+  }
+  announce("Pugo ate the " + info.name.toLowerCase() + ".");
+}
+
+// True when a spot is too close to the nest for Pugo to stand and eat
+function nearNest(x, y) {
+  const dx = (x - NEST.x) / 160;
+  const dy = (y - NEST.y) / 100;
+  return dx * dx + dy * dy < 1;
+}
+
+function dropFood(id) {
+  // Land somewhere in the open grass, away from the nest
+  let x;
+  let y;
+  let tries = 0;
+  do {
+    x = BOUNDS.left + 40 + Math.random() * (BOUNDS.right - BOUNDS.left - 80);
+    y = BOUNDS.top + 20 + Math.random() * (BOUNDS.bottom - BOUNDS.top - 30);
+    tries += 1;
+  } while (nearNest(x, y) && tries < 50);
+
+  const info = FOODS.find((f) => f.id === id);
+  foods.push({ id, x, y, z: 260, vz: 0, landed: false, bounced: false, bitesLeft: info.bites, bites: info.bites });
+}
+
+function updateFoods(dt) {
+  foods.forEach((food) => {
+    if (food.landed) return;
+    food.vz -= 900 * dt;
+    food.z += food.vz * dt;
+    if (food.z <= 0) {
+      food.z = 0;
+      if (!food.bounced) {
+        food.bounced = true;
+        food.vz = 160;
+        sfx.thud();
+        for (let i = 0; i < 4; i++) {
+          addParticle("dust", food.x, food.y - 2, Math.random() * 80 - 40, -40 - Math.random() * 30, 0.4);
+        }
+      } else {
+        food.landed = true;
+        foodLanded();
+      }
+    }
+  });
+}
+
+function foodLanded() {
+  // Pugo notices the food: excited peep, then runs over
+  if (chick.mode === "eat" || chick.emotion === "dizzy") return;
+  chick.mode = "react";
+  chick.timer = 0.5;
+  startHop(0.25, 12);
+  setEmotion("excited", 0.5);
+  sfx.peep();
+  setTimeout(sfx.peep, 140);
+}
+
 function updateChick(dt) {
   if (chick.emotionTime > 0) {
     chick.emotionTime -= dt;
@@ -415,7 +637,7 @@ function updateChick(dt) {
     chick.timer -= dt;
     if (chick.timer <= 0) {
       chick.mode = "idle";
-      chick.timer = 0.8;
+      chick.timer = nearestFood() ? 0.1 : 0.8;
     }
     return;
   }
@@ -431,7 +653,9 @@ function updateChick(dt) {
     const dy = chick.target.y - chick.y;
     const dist = Math.hypot(dx, dy);
     if (dist < 3) {
-      if (chick.speed > 70) {
+      if (chick.foodTarget) {
+        startEating(chick.foodTarget);
+      } else if (chick.speed > 70) {
         startPecking();
       } else {
         chick.mode = "idle";
@@ -448,6 +672,11 @@ function updateChick(dt) {
       chick.frameTime = 0;
       chick.walkFrame = 1 - chick.walkFrame;
     }
+    return;
+  }
+
+  if (chick.mode === "eat") {
+    updateEating(dt);
     return;
   }
 
@@ -498,7 +727,7 @@ function updateParticles(dt) {
     p.life -= dt;
     p.x += p.vx * dt;
     p.y += p.vy * dt;
-    if (p.kind === "shell" || p.kind === "dust") p.vy += 240 * dt;
+    if (p.kind === "shell" || p.kind === "dust" || p.kind === "crumb") p.vy += 240 * dt;
   });
   particles = particles.filter((p) => p.life > 0);
 }
@@ -531,10 +760,21 @@ function drawEgg() {
   ctx.restore();
 }
 
+function drawFoods() {
+  foods.forEach((food) => {
+    const sprite = art.food[food.id];
+    const size = 0.45 + 0.55 * (food.bitesLeft / food.bites);
+    const w = sprite.width * size;
+    const h = sprite.height * size;
+    drawShadow(food.x, food.y, w * 0.9 * (1 - Math.min(food.z, 200) / 300));
+    ctx.drawImage(sprite, food.x - w / 2, food.y - h - food.z, w, h);
+  });
+}
+
 function chickFrame() {
   if (chick.emotion === "happy" || chick.emotion === "excited") return art.chick.happy;
   if (chick.mode === "walk") return chick.walkFrame ? art.chick.walkB : art.chick.walkA;
-  if (chick.mode === "peck" && chick.pecking) return art.chick.peck;
+  if ((chick.mode === "peck" || chick.mode === "eat") && chick.pecking) return art.chick.peck;
   return art.chick.stand;
 }
 
@@ -554,7 +794,7 @@ function drawChick() {
     scaleY = 1 + bounce * 0.1;
   } else if (chick.mode === "walk") {
     lift = chick.walkFrame ? 2 : 0;
-  } else if (chick.mode !== "peck") {
+  } else if (chick.mode !== "peck" && chick.mode !== "eat") {
     const breath = Math.sin(time * 3) * 0.025;
     scaleX = 1 + breath;
     scaleY = 1 - breath;
@@ -595,6 +835,9 @@ function drawParticles() {
       ctx.fillRect(Math.round(p.x), Math.round(p.y), 6, 5);
       ctx.fillStyle = "#7a4e2c";
       ctx.fillRect(Math.round(p.x) + 2, Math.round(p.y) + 1, 2, 2);
+    } else if (p.kind === "crumb") {
+      ctx.fillStyle = "#c98a4a";
+      ctx.fillRect(Math.round(p.x), Math.round(p.y), 4, 4);
     } else if (p.kind === "dust") {
       ctx.fillStyle = "#d8c690";
       ctx.fillRect(Math.round(p.x), Math.round(p.y), 4, 4);
@@ -615,10 +858,12 @@ function draw() {
     drawEgg();
   } else if (chick.y < NEST.y - 20) {
     // Pugo is behind the nest
+    drawFoods();
     drawChick();
     drawNest();
   } else {
     drawNest();
+    drawFoods();
     drawChick();
   }
   drawParticles();
@@ -635,6 +880,7 @@ function loop(now) {
 
   if (state.stage === "egg") updateEgg(dt);
   else updateChick(dt);
+  updateFoods(dt);
   updateParticles(dt);
   draw();
   requestAnimationFrame(loop);
@@ -643,6 +889,11 @@ function loop(now) {
 // ---------- UI ----------
 
 const totalEl = document.getElementById("total-saved");
+const coinEl = document.getElementById("coin-count");
+const shopButton = document.getElementById("shop-button");
+const shopDialog = document.getElementById("shop-dialog");
+const shopCoinsEl = document.getElementById("shop-coins");
+const shopMessage = document.getElementById("shop-message");
 const hintEl = document.getElementById("hint");
 const floatersEl = document.getElementById("floaters");
 const announcer = document.getElementById("announcer");
@@ -658,6 +909,8 @@ let ready = false;
 
 function renderUI() {
   totalEl.textContent = peso.format(totalSaved());
+  coinEl.textContent = state.coins;
+  shopCoinsEl.textContent = state.coins;
   muteButton.setAttribute("aria-pressed", String(state.muted));
   muteButton.setAttribute("aria-label", state.muted ? "Unmute sounds" : "Mute sounds");
   if (!ready) return;
@@ -674,9 +927,9 @@ function announce(message) {
   announcer.textContent = message;
 }
 
-function floatText(text) {
+function floatText(text, extraClass = "") {
   const el = document.createElement("span");
-  el.className = "floater";
+  el.className = "floater " + extraClass;
   el.textContent = text;
   floatersEl.appendChild(el);
   setTimeout(() => el.remove(), 1500);
@@ -693,7 +946,9 @@ function startHatch() {
 function finishHatch() {
   egg.hatching = false;
   state.stage = "chick";
+  state.coins += STARTER_COINS;
   saveState();
+  floatText("+" + STARTER_COINS + " starter coins", "floater-coins");
 
   chick.x = egg.x;
   chick.y = NEST.y + 20;
@@ -713,11 +968,16 @@ function finishHatch() {
   setTimeout(sfx.peep, 250);
   setTimeout(sfx.peep, 450);
   burstHearts(3);
-  announce("Pugo hatched! Tap Pugo to say hi.");
+  announce("Pugo hatched! You got " + STARTER_COINS + " starter coins. Tap Pugo to say hi.");
   renderUI();
 }
 
 function celebrateSaving() {
+  if (chick.mode === "eat") {
+    sfx.happyChirp();
+    setTimeout(sfx.jingle, 300);
+    return;
+  }
   chick.mode = "react";
   chick.timer = 1.4;
   startHop(0.8, 34);
@@ -730,11 +990,14 @@ function celebrateSaving() {
 }
 
 function addSaving(amount) {
+  const earned = coinsFor(amount);
   state.entries.push({ id: Date.now(), amount, date: new Date().toISOString() });
+  state.coins += earned;
   saveState();
   renderUI();
   floatText("+" + peso.format(amount));
-  announce("Saved " + peso.format(amount) + ". Total " + peso.format(totalSaved()) + ".");
+  if (earned > 0) setTimeout(() => floatText("+" + earned + " coins", "floater-coins"), 250);
+  announce("Saved " + peso.format(amount) + ". You earned " + earned + " coins. Total " + peso.format(totalSaved()) + ".");
 
   if (!ready) return;
   if (state.stage === "egg") {
@@ -762,6 +1025,7 @@ function hitsEgg(point) {
 }
 
 function petChick() {
+  if (chick.mode === "eat") return;
   if (!tappedOnce) {
     tappedOnce = true;
     renderUI();
@@ -806,7 +1070,8 @@ canvas.addEventListener("pointerdown", (event) => {
   }
 
   // Tap the grass: Pugo runs over to check it out
-  if (chick.mode === "react") return;
+  if (chick.mode === "react" || chick.mode === "eat") return;
+  chick.foodTarget = null;
   chick.mode = "walk";
   chick.speed = 130;
   chick.target = {
@@ -871,6 +1136,78 @@ form.addEventListener("submit", (event) => {
   addSaving(amount);
 });
 
+// Shop
+function shopItem(food) {
+  const li = document.createElement("li");
+  li.className = "shop-item";
+  const unlocked = isUnlocked(food);
+  if (!unlocked) li.classList.add("locked");
+
+  const icon = document.createElement("img");
+  icon.className = "shop-icon";
+  icon.alt = "";
+  icon.src = art.food[food.id].toDataURL();
+
+  const info = document.createElement("div");
+  info.className = "shop-info";
+  const name = document.createElement("strong");
+  name.textContent = food.name;
+  const note = document.createElement("span");
+  note.textContent = unlocked ? food.note : food.lockedNote;
+  info.append(name, note);
+
+  const buy = document.createElement("button");
+  buy.type = "button";
+  buy.className = "buy-button";
+  buy.innerHTML = '<span class="coin" aria-hidden="true"></span>' + food.price;
+  buy.setAttribute("aria-label", unlocked ? "Buy " + food.name + " for " + food.price + " coins" : food.name + " is locked");
+  buy.addEventListener("click", () => buyFood(food));
+
+  li.append(icon, info, buy);
+  return li;
+}
+
+function renderShop() {
+  const everyday = document.getElementById("shop-everyday");
+  const treats = document.getElementById("shop-treats");
+  everyday.replaceChildren(...FOODS.filter((f) => f.kind === "everyday").map(shopItem));
+  treats.replaceChildren(...FOODS.filter((f) => f.kind === "treat").map(shopItem));
+}
+
+function buyFood(food) {
+  if (!isUnlocked(food)) {
+    shopMessage.textContent = food.lockedNote + ".";
+    sfx.nope();
+    return;
+  }
+  if (state.coins < food.price) {
+    shopMessage.textContent = "You need " + (food.price - state.coins) + " more coins. Save money to earn coins!";
+    sfx.nope();
+    return;
+  }
+  state.coins -= food.price;
+  saveState();
+  renderUI();
+  sfx.coin();
+  shopDialog.close();
+  dropFood(food.id);
+  announce("Bought " + food.name + ". " + state.coins + " coins left.");
+}
+
+shopButton.addEventListener("click", () => {
+  if (!ready) return;
+  if (state.stage === "egg") {
+    hintEl.textContent = "Hatch Pugo first: save anything!";
+    sfx.nope();
+    return;
+  }
+  shopMessage.textContent = "";
+  renderShop();
+  shopDialog.showModal();
+});
+
+document.getElementById("close-shop").addEventListener("click", () => shopDialog.close());
+
 // Start over
 document.getElementById("reset-button").addEventListener("click", () => {
   if (!confirm("Start over? This clears your savings and Pugo goes back to an egg.")) return;
@@ -881,6 +1218,9 @@ document.getElementById("reset-button").addEventListener("click", () => {
   egg.hatching = false;
   egg.cracks = 0;
   particles = [];
+  foods = [];
+  chick.foodTarget = null;
+  chick.mode = "idle";
   tappedOnce = false;
   renderUI();
 });
